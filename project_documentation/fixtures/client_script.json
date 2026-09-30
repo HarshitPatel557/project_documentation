@@ -1,0 +1,13 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Client Script",
+  "dt": "Project Documentation Project",
+  "enabled": 1,
+  "modified": "2026-09-10 17:31:45.065602",
+  "module": "Project Documentation",
+  "name": "project_documentation_project",
+  "script": "frappe.ui.form.on(\"Project Documentation Project\", {\r\n    refresh(frm) {\r\n        if (frm.is_new()) {\r\n            return;\r\n        }\r\n\r\n        if (frm.doc.wiki_space) {\r\n            frm.add_custom_button(\r\n                __(\"Open Documentation\"),\r\n                () => {\r\n                    frappe.set_route(\r\n                        \"Form\",\r\n                        \"Wiki Space\",\r\n                        frm.doc.wiki_space\r\n                    );\r\n                }\r\n            );\r\n\r\n            return;\r\n        }\r\n\r\n        frm.add_custom_button(\r\n            __(\"Initialize Documentation\"),\r\n            () => {\r\n                frappe.confirm(\r\n                    __(\r\n                        \"Initialize documentation for this project?<br><br>\" +\r\n                        \"This will create a Wiki Space and the standard \" +\r\n                        \"8-section documentation structure.\"\r\n                    ),\r\n                    () => {\r\n                        frappe.call({\r\n                            method:\r\n                                \"project_documentation.api.wiki_provisioning.initialize_documentation\",\r\n                            args: {\r\n                                project: frm.doc.name,\r\n                            },\r\n                            freeze: true,\r\n                            freeze_message: __(\r\n                                \"Initializing documentation...\"\r\n                            ),\r\n                            callback(r) {\r\n                                if (r.message) {\r\n                                    frappe.show_alert({\r\n                                        message: r.message.message,\r\n                                        indicator:\r\n                                            r.message.status === \"CREATED\"\r\n                                                ? \"green\"\r\n                                                : \"blue\",\r\n                                    });\r\n\r\n                                    frm.reload_doc();\r\n                                }\r\n                            },\r\n                        });\r\n                    }\r\n                );\r\n            }\r\n        );\r\n    },\r\n});",
+  "view": "Form"
+ }
+]

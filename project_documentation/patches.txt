@@ -4,3 +4,6 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+project_documentation.patches.v7_standardize_project_documentation_doctypes
+project_documentation.patches.v8_setup_project_documentation_configuration
+project_documentation.patches.v9_queue_project_wiki_space_provisioning

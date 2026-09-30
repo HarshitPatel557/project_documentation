@@ -1,0 +1,93 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "autoname": "field:project_code",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "project_code",
+    "project_name",
+    "external_project_id",
+    "vertical",
+    "phase_name",
+    "oic_id",
+    "oic_name",
+    "is_active",
+    "wiki_space"
+  ],
+  "fields": [
+    {
+      "fieldname": "project_code",
+      "fieldtype": "Data",
+      "label": "Project Code",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "project_name",
+      "fieldtype": "Data",
+      "label": "Project Name",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "external_project_id",
+      "fieldtype": "Int",
+      "label": "External Project ID"
+    },
+    {
+      "fieldname": "vertical",
+      "fieldtype": "Data",
+      "label": "Vertical"
+    },
+    {
+      "fieldname": "phase_name",
+      "fieldtype": "Data",
+      "label": "Phase"
+    },
+    {
+      "fieldname": "oic_id",
+      "fieldtype": "Int",
+      "label": "OIC ID"
+    },
+    {
+      "fieldname": "oic_name",
+      "fieldtype": "Data",
+      "label": "OIC Name"
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "is Active",
+      "default": "1",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "wiki_space",
+      "fieldtype": "Link",
+      "label": "Wiki Space",
+      "options": "Wiki Space"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "Project Documentation",
+  "name": "Project Documentation Project",
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "print": 1,
+      "email": 1,
+      "export": 1,
+      "report": 1,
+      "share": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0,
+  "custom": 0
+}

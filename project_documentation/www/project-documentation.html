@@ -1,0 +1,47 @@
+{% extends "templates/web.html" %}
+{% block title %}My Projects{% endblock %}
+{% block page_content %}
+<div class="pd-app">
+  <div class="pd-shell">
+    <div class="pd-topbar">
+      <div class="pd-brand">
+        <span class="pd-brand-mark">PD</span>
+        <span>Project Documentation</span>
+      </div>
+      <div class="pd-user" id="pd-current-user">Loading...</div>
+    </div>
+
+    <header class="pd-header">
+      <div class="pd-header-copy">
+        <div class="pd-eyebrow">PROJECT DOCUMENTATION</div>
+        <h1>My Projects</h1>
+        <p class="pd-subtitle">Manage documentation access and open the knowledge space for your active projects.</p>
+      </div>
+      <div class="pd-header-actions">
+        <button id="pd-refresh" class="pd-btn pd-btn-secondary">↻&nbsp; Refresh</button>
+      </div>
+    </header>
+
+    <div id="pd-alert" class="pd-alert" hidden></div>
+
+    <section class="pd-card">
+      <div class="pd-card-head">
+        <div>
+          <h2>Projects</h2>
+          <p>Select a project to manage its documentation access.</p>
+        </div>
+        <span class="pd-count" id="pd-project-count">0 projects</span>
+      </div>
+      <div class="pd-toolbar">
+        <div class="pd-search">
+          <input id="pd-project-search" type="search" placeholder="Search projects..." autocomplete="off">
+        </div>
+        <span class="pd-count" id="pd-project-visible">—</span>
+      </div>
+      <div id="pd-projects" class="pd-project-grid">
+        <div class="pd-loading">Loading your projects...</div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

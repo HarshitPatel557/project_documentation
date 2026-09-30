@@ -1,0 +1,68 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "jti",
+    "user_id",
+    "email",
+    "user_name",
+    "roles"
+  ],
+  "fields": [
+    {
+      "fieldname": "jti",
+      "fieldtype": "Data",
+      "label": "JTI",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "user_id",
+      "fieldtype": "Link",
+      "label": "User",
+      "options": "User",
+      "reqd": 1
+    },
+    {
+      "fieldname": "email",
+      "fieldtype": "Data",
+      "label": "Email"
+    },
+    {
+      "fieldname": "user_name",
+      "fieldtype": "Data",
+      "label": "User Name"
+    },
+    {
+      "fieldname": "roles",
+      "fieldtype": "Long Text",
+      "label": "Roles"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "Project Documentation",
+  "name": "SSO Token Log",
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "print": 1,
+      "email": 1,
+      "export": 1,
+      "report": 1,
+      "share": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0,
+  "custom": 0
+}

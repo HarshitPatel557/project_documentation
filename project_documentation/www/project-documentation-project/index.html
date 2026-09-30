@@ -1,0 +1,72 @@
+{% extends "templates/web.html" %}
+{% block title %}Project Documentation{% endblock %}
+{% block page_content %}
+<div class="pd-app">
+  <div class="pd-shell">
+    <div class="pd-topbar">
+      <div class="pd-brand">
+        <span class="pd-brand-mark">PD</span>
+        <span>Project Documentation</span>
+      </div>
+      <div class="pd-user" id="pd-current-user">Loading...</div>
+    </div>
+
+    <header class="pd-hero pd-card">
+      <div class="pd-hero-inner">
+        <div>
+          <a class="pd-back" href="/project-documentation" style="color:#dce3ff">← My Projects</a>
+          <div class="pd-eyebrow">PROJECT</div>
+          <h1 id="pd-project-title">Loading...</h1>
+          <p class="pd-subtitle" id="pd-project-meta">Loading project...</p>
+          <div style="margin-top:12px"><span class="pd-hero-code" id="pd-project-code">Project</span></div>
+        </div>
+        <div class="pd-hero-actions">
+          <a id="pd-open-space" class="pd-btn pd-btn-primary" hidden>Open Wiki ↗</a>
+        </div>
+      </div>
+    </header>
+
+    <div id="pd-alert" class="pd-alert" hidden></div>
+
+    <section class="pd-kpi-row">
+      <div class="pd-kpi">
+        <div class="pd-kpi-label">Phase</div>
+        <div class="pd-kpi-value" id="pd-phase">—</div>
+        <div class="pd-kpi-note">Current project phase</div>
+      </div>
+      <div class="pd-kpi">
+        <div class="pd-kpi-label">Vertical</div>
+        <div class="pd-kpi-value" id="pd-vertical">—</div>
+        <div class="pd-kpi-note">Business vertical</div>
+      </div>
+      <div class="pd-kpi">
+        <div class="pd-kpi-label">OIC</div>
+        <div class="pd-kpi-value" id="pd-oic">—</div>
+        <div class="pd-kpi-note">Officer in charge</div>
+      </div>
+    </section>
+
+    <section class="pd-card" style="margin-top:16px">
+      <div class="pd-card-head">
+        <div>
+          <h2>Documentation Access</h2>
+          <p>Manage Read / Write access for active members of this project.</p>
+        </div>
+        <div class="pd-header-actions">
+          <span class="pd-status" id="pd-space-status">Wiki Space</span>
+          <button id="pd-save-all" class="pd-btn pd-btn-primary">Save changes</button>
+        </div>
+      </div>
+
+      <div class="pd-toolbar">
+        <div class="pd-search">
+          <input id="pd-member-search" type="search" placeholder="Search team members..." autocomplete="off">
+        </div>
+        <span class="pd-count" id="pd-member-count">Loading members...</span>
+      </div>
+
+      <div id="pd-members"><div class="pd-loading">Loading project members...</div></div>
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,255 +1,121 @@
 app_name = "project_documentation"
 app_title = "Project Documentation"
-app_publisher = "harshit"
-app_description = "Project for documentation"
+app_publisher = "Harshit"
+app_description = "Project Documentation Management System"
 app_email = "patelharshithp404@gmail.com"
 app_license = "mit"
 
-# Apps
-# ------------------
+# Import API modules at app hook load time so their @frappe.whitelist
+# decorators are registered in every Frappe web worker before RPC
+# permission checks run. This is required for custom RPC methods because
+# Frappe validates the whitelist before executing the requested method.
+from project_documentation.api import auth as _auth_api  # noqa: F401
+from project_documentation.api import project_access as _project_access_api  # noqa: F401
+from project_documentation.api import user_search as _user_search_api  # noqa: F401
 
-# required_apps = []
 
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "project_documentation",
-# 		"logo": "/assets/project_documentation/logo.png",
-# 		"title": "Project Documentation",
-# 		"route": "/project_documentation",
-# 		"has_permission": "project_documentation.api.permission.has_app_permission"
-# 	}
-# ]
 
-# Includes in <head>
-# ------------------
+permission_query_conditions = {
+    "Wiki Space": [
+        "project_documentation.api.project_access.wiki_space_project_query_conditions",
+    ],
+    "Wiki Document": [
+        "project_documentation.api.project_access.wiki_document_project_query_conditions",
+    ],
+    "Wiki Change Request": [
+        "project_documentation.api.project_access.wiki_change_request_project_query_conditions",
+    ],
+}
 
-# include js, css files in header of desk.html
-# app_include_css = "/assets/project_documentation/css/project_documentation.css"
-# app_include_js = "/assets/project_documentation/js/project_documentation.js"
+has_permission = {
+    "Wiki Space": [
+        "project_documentation.api.project_access.wiki_space_has_permission",
+    ],
+    "Wiki Document": [
+        "project_documentation.api.project_access.wiki_document_has_permission",
+    ],
+    "Wiki Change Request": [
+        "project_documentation.api.project_access.wiki_change_request_has_permission",
+    ],
+}
 
-# include js, css files in header of web template
-# web_include_css = "/assets/project_documentation/css/project_documentation.css"
-# web_include_js = "/assets/project_documentation/js/project_documentation.js"
+doc_events = {
+    "Wiki Change Request": {
+        "on_update": "project_documentation.api.project_access.sync_cr_mention_assignments",
+    },
+}
 
-# include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "project_documentation/public/scss/website"
+scheduler_events = {
+    "hourly": [
+        "project_documentation.api.promot_sync.run_sync",
+        "project_documentation.api.wiki_provisioning.queue_missing_wiki_spaces",
+    ],
+}
 
-# include js, css files in header of web form
-# webform_include_js = {"doctype": "public/js/doctype.js"}
-# webform_include_css = {"doctype": "public/css/doctype.css"}
+# After installation/migration, queue provisioning for any active projects
+# already present in the database. The job is idempotent.
+after_migrate = "project_documentation.api.wiki_provisioning.queue_missing_wiki_spaces"
 
-# include js in page
-# page_js = {"page" : "public/js/file.js"}
 
-# include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
-# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+override_whitelisted_methods = {
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.approve_change_request":
+        "project_documentation.api.project_access.pm_only_approve_change_request",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.request_changes":
+        "project_documentation.api.project_access.pm_only_request_changes",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.reject_change_request":
+        "project_documentation.api.project_access.pm_only_reject_change_request",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.merge_change_request":
+        "project_documentation.api.project_access.pm_only_merge_change_request",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.get_merge_conflicts":
+        "project_documentation.api.project_access.pm_only_get_merge_conflicts",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.resolve_merge_conflict":
+        "project_documentation.api.project_access.pm_only_resolve_merge_conflict",
+    "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.retry_merge_after_resolution":
+        "project_documentation.api.project_access.pm_only_retry_merge_after_resolution",
+    "wiki.api.get_space_capabilities":
+        "project_documentation.api.project_access.custom_get_space_capabilities",
+    "wiki.api.get_user_info":
+        "project_documentation.api.project_access.custom_get_user_info",
+}
 
-# Svg Icons
-# ------------------
-# include app icons in desk
-# app_include_icons = "project_documentation/public/icons.svg"
-
-# Home Pages
-# ----------
-
-# application home page (will override Website Settings)
-# home_page = "login"
-
-# website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
-
-# Generators
-# ----------
-
-# automatically create page for each record of this doctype
-# website_generators = ["Web Page"]
-
-# Jinja
-# ----------
-
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "project_documentation.utils.jinja_methods",
-# 	"filters": "project_documentation.utils.jinja_filters"
-# }
-
-# Installation
-# ------------
-
-# before_install = "project_documentation.install.before_install"
-# after_install = "project_documentation.install.after_install"
-
-# Uninstallation
-# ------------
-
-# before_uninstall = "project_documentation.uninstall.before_uninstall"
-# after_uninstall = "project_documentation.uninstall.after_uninstall"
-
-# Integration Setup
-# ------------------
-# To set up dependencies/integrations with other apps
-# Name of the app being installed is passed as an argument
-
-# before_app_install = "project_documentation.utils.before_app_install"
-# after_app_install = "project_documentation.utils.after_app_install"
-
-# Integration Cleanup
-# -------------------
-# To clean up dependencies/integrations with other apps
-# Name of the app being uninstalled is passed as an argument
-
-# before_app_uninstall = "project_documentation.utils.before_app_uninstall"
-# after_app_uninstall = "project_documentation.utils.after_app_uninstall"
-
-# Desk Notifications
-# ------------------
-# See frappe.core.notifications.get_notification_config
-
-# notification_config = "project_documentation.notifications.get_notification_config"
-
-# Awesome Bar
-# -----------
-# Extra search results: list of dicts with label, description, route, index.
-# route: ["List", "ToDo"], "/desk/docs/some/page", or "https://example.com"
-# awesomebar_search = ["project_documentation.search.awesomebar_results"]
-
-# Permissions
-# -----------
-# Permissions evaluated in scripted ways
-
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
-
-# DocType Class
-# ---------------
-# Override standard doctype classes
-
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
-
-# Document Events
-# ---------------
-# Hook on document methods and events
-
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
-
-# Scheduled Tasks
-# ---------------
-
-# scheduler_events = {
-# 	"all": [
-# 		"project_documentation.tasks.all"
-# 	],
-# 	"daily": [
-# 		"project_documentation.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"project_documentation.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"project_documentation.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"project_documentation.tasks.monthly"
-# 	],
-# }
-
-# Testing
-# -------
-
-# before_tests = "project_documentation.install.before_tests"
-
-# Overriding Methods
-# ------------------------------
-#
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "project_documentation.event.get_events"
-# }
-#
-# each overriding function accepts a `data` argument;
-# generated from the base implementation of the doctype dashboard,
-# along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "project_documentation.task.get_dashboard_data"
-# }
-
-# exempt linked doctypes from being automatically cancelled
-#
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
-
-# Ignore links to specified DocTypes when deleting documents
-# -----------------------------------------------------------
-
-# ignore_links_on_delete = ["Communication", "ToDo"]
-
-# Request Events
-# ----------------
-# before_request = ["project_documentation.utils.before_request"]
-# after_request = ["project_documentation.utils.after_request"]
-
-# Job Events
-# ----------
-# before_job = ["project_documentation.utils.before_job"]
-# after_job = ["project_documentation.utils.after_job"]
-
-# User Data Protection
-# --------------------
-
-# user_data_fields = [
-# 	{
-# 		"doctype": "{doctype_1}",
-# 		"filter_by": "{filter_by}",
-# 		"redact_fields": ["{field_1}", "{field_2}"],
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_2}",
-# 		"filter_by": "{filter_by}",
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_3}",
-# 		"strict": False,
-# 	},
-# 	{
-# 		"doctype": "{doctype_4}"
-# 	}
-# ]
-
-# Authentication and authorization
-# --------------------------------
-
-# auth_hooks = [
-# 	"project_documentation.auth.validate"
-# ]
-
-# Automatically update python controller files with type annotations for this app.
-# export_python_type_annotations = True
-
-# default_log_clearing_doctypes = {
-# 	"Logging DocType Name": 30  # days to retain logs
-# }
-
-# Translation
-# ------------
-# List of apps whose translatable strings should be excluded from this app's translations.
-# ignore_translatable_strings_from = []
-
+fixtures = [
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "=", "User"],
+            [
+                "fieldname",
+                "in",
+                [
+                    "custom_external_user_id",
+                    "custom_external_employee_id",
+                    "custom_designation",
+                ],
+            ],
+        ],
+    },
+    {
+        "dt": "Client Script",
+        "filters": [
+            ["name", "=", "project_documentation_project"]
+        ],
+    },
+    {
+        "dt": "Custom DocPerm",
+        "filters": [
+            [
+                "parent",
+                "in",
+                [
+                    "Wiki Space",
+                    "Wiki Document",
+                    "Wiki Change Request",
+                    "Wiki Revision",
+                    "Wiki Revision Item",
+                    "Wiki Content Blob",
+                    "Wiki Settings",
+                ],
+            ]
+        ],
+    },
+]

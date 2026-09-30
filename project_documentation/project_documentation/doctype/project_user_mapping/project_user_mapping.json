@@ -1,0 +1,127 @@
+{
+  "actions": [],
+  "allow_rename": 0,
+  "autoname": "hash",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "project",
+    "employee_id",
+    "employee_name",
+    "user",
+    "section_break_unre",
+    "role_id",
+    "project_designation",
+    "actual_designation",
+    "section_break_uvgl",
+    "start_date",
+    "end_date",
+    "still_involved",
+    "section_break_ittf",
+    "project_current_status"
+  ],
+  "fields": [
+    {
+      "fieldname": "project",
+      "fieldtype": "Link",
+      "label": "Project",
+      "options": "Project Documentation Project",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "employee_id",
+      "fieldtype": "Int",
+      "label": "Employee ID",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "employee_name",
+      "fieldtype": "Data",
+      "label": "Employee Name"
+    },
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "label": "User",
+      "options": "User",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_break_unre",
+      "fieldtype": "Section Break",
+      "label": ""
+    },
+    {
+      "fieldname": "role_id",
+      "fieldtype": "Int",
+      "label": "Role ID"
+    },
+    {
+      "fieldname": "project_designation",
+      "fieldtype": "Data",
+      "label": "Project Designation",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "actual_designation",
+      "fieldtype": "Data",
+      "label": "Actual Designation"
+    },
+    {
+      "fieldname": "section_break_uvgl",
+      "fieldtype": "Section Break",
+      "label": ""
+    },
+    {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "label": "Start Date"
+    },
+    {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date"
+    },
+    {
+      "fieldname": "still_involved",
+      "fieldtype": "Check",
+      "label": "Still Involved",
+      "default": "1",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_break_ittf",
+      "fieldtype": "Section Break",
+      "label": ""
+    },
+    {
+      "fieldname": "project_current_status",
+      "fieldtype": "Data",
+      "label": "Project Current Status"
+    }
+  ],
+  "index_web_pages_for_search": 0,
+  "links": [],
+  "module": "Project Documentation",
+  "name": "Project User Mapping",
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "print": 1,
+      "email": 1,
+      "export": 1,
+      "report": 1,
+      "share": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 0,
+  "custom": 0
+}
