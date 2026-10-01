@@ -118,4 +118,14 @@ fixtures = [
             ]
         ],
     },
+    {
+        "dt": "Role",
+        "filters": [
+            ["name", "in", [
+                "Project Documentation Manager",
+                "Project Documentation Reader",
+                "Project Documentation Writer"
+            ]]
+        ]
+    }
 ]
