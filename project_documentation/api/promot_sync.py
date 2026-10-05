@@ -294,8 +294,8 @@ def sync_all(
             from project_documentation.api.wiki_provisioning import (
                 queue_missing_wiki_spaces,
             )
-            queue_missing_wiki_spaces()
 
+            result["wiki_provisioning"] = queue_missing_wiki_spaces()
         return result
 
     finally:
