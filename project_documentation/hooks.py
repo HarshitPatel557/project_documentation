@@ -1,7 +1,8 @@
 app_name = "project_documentation"
-app_title = "Project Documentation"
-app_publisher = "Harshit"
-app_description = "Project Documentation Management System"
+app_title = "Promot Wiki"
+app_publisher = "Promot"
+app_description = "Promot Wiki Project Documentation Management"
+app_logo_url = "/assets/wiki/images/promot-wiki-icon.png"
 app_email = "patelharshithp404@gmail.com"
 app_license = "mit"
 

@@ -194,7 +194,7 @@ def _ensure_documentation_role_permissions():
     Write users receive read/write/create permission; only PMs receive the
     native Wiki Manager role needed for Wiki's review/merge controls.
     """
-    for role in (PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE):
+    for role in (PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE, WIKI_USER_ROLE):
         _ensure_role(role)
 
     # Reader: can enter/list project Wiki Spaces and read Wiki Documents & Settings.
@@ -221,8 +221,12 @@ def _ensure_documentation_role_permissions():
     _ensure_role_permission("Wiki Content Blob", PD_MANAGER_ROLE, read=1, write=1, create=1, delete=1, share=1)
     _ensure_role_permission("Wiki Settings", PD_MANAGER_ROLE, read=1)
 
-    # Allow base read perm for All role so that assigned/mentioned users can read CRs
-    # (Fine-grained access is enforced by wiki_change_request_has_permission & query conditions)
+    # Base read permissions for Wiki User and All so logged-in users pass DocPerm checks
+    # (Fine-grained access is enforced by wiki_*_has_permission & query conditions)
+    _ensure_role_permission("Wiki Space", WIKI_USER_ROLE, read=1)
+    _ensure_role_permission("Wiki Document", WIKI_USER_ROLE, read=1)
+    _ensure_role_permission("Wiki Space", "All", read=1)
+    _ensure_role_permission("Wiki Document", "All", read=1)
     _ensure_role_permission("Wiki Change Request", "All", read=1)
 
 def _user_roles(user):
@@ -344,25 +348,27 @@ def _sync_user_wiki_roles(user):
     else:
         access_rows = []
 
-    has_write = is_pm or any(row.access_level == "Write" for row in access_rows)
-    has_read = has_write or any(row.access_level == "Read" for row in access_rows)
+    is_involved_member = bool(
+        frappe.db.exists(
+            "Project User Mapping",
+            {"user": user, "still_involved": 1},
+        )
+    )
 
-    # Remove native Wiki roles previously assigned by older versions for
-    # project members. Only PMs retain Wiki Manager because it is the Wiki's
-    # native approval/merge role. Readers and Writers never receive it.
     roles = _user_roles(user)
     if is_pm:
-        _add_user_roles(user, WIKI_MANAGER_ROLE, PD_MANAGER_ROLE)
+        _add_user_roles(user, WIKI_MANAGER_ROLE, PD_MANAGER_ROLE, WIKI_USER_ROLE)
         _remove_user_roles(user, WIKI_APPROVER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE)
     elif any(row.access_level == "Write" for row in access_rows):
-        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, WIKI_USER_ROLE)
-        _add_user_roles(user, PD_WRITER_ROLE)
+        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE)
+        _add_user_roles(user, PD_WRITER_ROLE, WIKI_USER_ROLE)
         _remove_user_roles(user, PD_READER_ROLE)
-    elif any(row.access_level == "Read" for row in access_rows):
-        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE, WIKI_USER_ROLE)
-        _add_user_roles(user, PD_READER_ROLE)
+    elif any(row.access_level == "Read" for row in access_rows) or is_involved_member:
+        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE)
+        _add_user_roles(user, PD_READER_ROLE, WIKI_USER_ROLE)
     else:
-        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE, WIKI_USER_ROLE)
+        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE)
+        _add_user_roles(user, WIKI_USER_ROLE)
 
 
 def ensure_pm_wiki_access(user=None):
@@ -768,6 +774,15 @@ def get_space_access(space, user=None):
         }
 
     level = _access_level(project, user)
+    if not level:
+        is_member = bool(
+            frappe.db.exists(
+                "Project User Mapping",
+                {"project": project, "user": user, "still_involved": 1},
+            )
+        )
+        if is_member:
+            level = "Read"
 
     return {
         "is_project_space": True,
@@ -914,15 +929,10 @@ def custom_get_user_info() -> dict:
     if user == "Administrator":
         return info
 
-    user_roles = set(frappe.get_roles(user))
-    pd_roles = {PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE}
-
-    # If the user has any Project Documentation role or active PM/member project,
-    # supply the baseline "Wiki User" role descriptor so the Wiki frontend SPA allows entry.
-    if pd_roles.intersection(user_roles) or _active_pm_projects(user):
-        existing_roles = [r.get("role") if isinstance(r, dict) else r.role for r in (info.get("roles") or [])]
-        if "Wiki User" not in existing_roles:
-            info["roles"] = list(info.get("roles") or []) + [{"role": "Wiki User"}]
+    # Ensure any authenticated user has the baseline Wiki User entry to access the Wiki SPA
+    existing_roles = [r.get("role") if isinstance(r, dict) else r.role for r in (info.get("roles") or [])]
+    if "Wiki User" not in existing_roles:
+        info["roles"] = list(info.get("roles") or []) + [{"role": "Wiki User"}]
 
     return info
 
@@ -958,7 +968,7 @@ def wiki_space_has_permission(doc, user=None, permission_type=None, *args, **kwa
         return True
 
     user = user or frappe.session.user
-    if user == "Administrator":
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return True
 
     project = _space_project(doc.name)
@@ -983,7 +993,7 @@ def wiki_document_has_permission(doc, user=None, permission_type=None, *args, **
         return True
 
     user = user or frappe.session.user
-    if user == "Administrator":
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return True
 
     ptype = kwargs.get("ptype") or permission_type or "read"
@@ -1010,7 +1020,7 @@ def wiki_change_request_has_permission(doc, user=None, permission_type=None, *ar
         return True
 
     user = user or frappe.session.user
-    if user == "Administrator":
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return True
 
     ptype = kwargs.get("ptype") or permission_type or "read"
@@ -1042,6 +1052,17 @@ def wiki_change_request_has_permission(doc, user=None, permission_type=None, *ar
 
 def _readable_project_spaces(user):
     """Return project Wiki Spaces the user is explicitly allowed to read."""
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return {
+            row.wiki_space
+            for row in frappe.get_all(
+                "Project Documentation Project",
+                filters={"is_active": 1},
+                fields=["wiki_space"],
+            )
+            if row.wiki_space
+        }
+
     project_rows = frappe.get_all(
         "Project Documentation Project",
         filters={"is_active": 1},
@@ -1052,6 +1073,18 @@ def _readable_project_spaces(user):
     pm_projects = _active_pm_projects(user)
     readable_projects = set(pm_projects)
 
+    # 1. Projects where user is an active team member in Project User Mapping
+    member_project_rows = frappe.get_all(
+        "Project User Mapping",
+        filters={
+            "user": user,
+            "still_involved": 1,
+        },
+        fields=["project"],
+    )
+    readable_projects.update(row.project for row in member_project_rows if row.project)
+
+    # 2. Projects where user has explicit Read or Write access
     access_rows = frappe.get_all(
         ACCESS_DOCTYPE,
         filters={
@@ -1060,7 +1093,7 @@ def _readable_project_spaces(user):
         },
         fields=["project"],
     )
-    readable_projects.update(row.project for row in access_rows)
+    readable_projects.update(row.project for row in access_rows if row.project)
 
     return {
         row.wiki_space
@@ -1075,6 +1108,9 @@ def wiki_space_project_query_conditions(user=None, doctype=None):
 
     if user == "Guest":
         return "1 = 0"
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return ""
 
     project_spaces = {
         row.wiki_space
@@ -1121,6 +1157,9 @@ def wiki_document_project_query_conditions(user=None, doctype=None):
 
     if user == "Guest":
         return "1 = 0"
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return ""
 
     project_spaces = {
         row.wiki_space
@@ -1170,6 +1209,9 @@ def wiki_change_request_project_query_conditions(user=None, doctype=None):
 
     if user == "Guest":
         return "1 = 0"
+
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return ""
 
     project_spaces = {
         row.wiki_space

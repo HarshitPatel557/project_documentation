@@ -136,6 +136,12 @@ CUSTOM_DOCPERMS = [
         "report": 1,
         "share": 1,
     },
+    {
+        "parent": "Wiki Space",
+        "role": "All",
+        "permlevel": 0,
+        "read": 1,
+    },
     # Wiki Document
     {
         "parent": "Wiki Document",
@@ -211,6 +217,12 @@ CUSTOM_DOCPERMS = [
         "print": 1,
         "report": 1,
         "share": 1,
+    },
+    {
+        "parent": "Wiki Document",
+        "role": "All",
+        "permlevel": 0,
+        "read": 1,
     },
     # Wiki Change Request
     {

@@ -127,21 +127,13 @@ def queue_missing_wiki_spaces():
             "project_documentation.api.wiki_provisioning.provision_all_project_wiki_spaces",
             queue="long",
             enqueue_after_commit=True,
-            job_id="project_documentation_wiki_provisioning",
-            deduplicate=True,
         )
-
-        return {
-            "queued": True,
-            "job_id": "project_documentation_wiki_provisioning",
-        }
-
+        return {"queued": True}
     except Exception:
+        # Queue infrastructure may not be available during some installation
+        # or migration contexts. The hourly scheduler will retry.
         frappe.log_error(
             frappe.get_traceback(),
-            "Wiki Space Provisioning Queue Failed",
+            "Unable to queue automatic Project Wiki Space provisioning",
         )
-
-        return {
-            "queued": False,
-        }
+        return {"queued": False}

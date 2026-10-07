@@ -1,27 +1,10 @@
+import re
 import frappe
-
-
-DOCUMENTATION_SECTIONS = [
-    "01 - Project Overview",
-    "02 - Requirements",
-    "03 - Architecture",
-    "04 - Development",
-    "05 - Testing",
-    "06 - Deployment",
-    "07 - Operations",
-    "08 - Project Decisions",
-]
 
 
 def create_project_wiki_space(doc, method=None):
     """
-    Legacy hook entry point.
-
-    Wiki creation is now controlled explicitly through
-    the Initialize Documentation action.
-
-    This function is intentionally kept for compatibility
-    with any existing references.
+    Hook entry point for Project Documentation Project after_insert.
     """
     if getattr(frappe.flags, "skip_project_wiki_creation", False):
         return
@@ -34,8 +17,11 @@ def initialize_project_documentation(doc):
     Create and link a Wiki Space for a Project Documentation Project.
 
     This function does not create anything if the project
-    already has a Wiki Space.
+    already has a Wiki Space. Only the Wiki Space is initialized;
+    no extra child folders/documents are created.
     """
+    if isinstance(doc, str):
+        doc = frappe.get_doc("Project Documentation Project", doc)
 
     if doc.wiki_space:
         return frappe.get_doc("Wiki Space", doc.wiki_space)
@@ -46,30 +32,30 @@ def initialize_project_documentation(doc):
     if not doc.project_name:
         frappe.throw("Project Name is required before initializing documentation.")
 
-    route = doc.project_code.strip().lower().replace(" ", "-")
+    route = re.sub(r"[^a-z0-9]+", "-", doc.project_code.strip().lower()).strip("-")
+    if not route:
+        route = re.sub(r"[^a-z0-9]+", "-", doc.name.strip().lower()).strip("-")
 
-    existing_space = frappe.db.get_value(
+    existing_space_name = frappe.db.get_value(
         "Wiki Space",
         {"route": route},
         "name",
     )
 
-    if existing_space:
-        frappe.throw(
-            f"Wiki Space route '{route}' already exists. "
-            "Please resolve the existing Wiki Space before initializing "
-            "documentation for this project."
-        )
-
-    # Create Wiki Space.
-    # Wiki Space creates its root Wiki Document during before_insert().
-    space = frappe.get_doc({
-        "doctype": "Wiki Space",
-        "space_name": doc.project_name,
-        "route": route,
-    })
-
-    space.insert(ignore_permissions=True)
+    if existing_space_name:
+        space = frappe.get_doc("Wiki Space", existing_space_name)
+    else:
+        space = frappe.get_doc({
+            "doctype": "Wiki Space",
+            "space_name": doc.project_name,
+            "route": route,
+        })
+        previous_ignore_permissions = getattr(frappe.flags, "ignore_permissions", False)
+        frappe.flags.ignore_permissions = True
+        try:
+            space.insert(ignore_permissions=True)
+        finally:
+            frappe.flags.ignore_permissions = previous_ignore_permissions
 
     # Link Wiki Space to Project.
     frappe.db.set_value(
@@ -79,29 +65,6 @@ def initialize_project_documentation(doc):
         space.name,
         update_modified=False,
     )
-
-    # Create standard documentation structure.
-    create_documentation_structure(space)
+    doc.wiki_space = space.name
 
     return space
-
-
-def create_documentation_structure(space):
-    """
-    Create the standard documentation groups inside a Wiki Space.
-    """
-
-    root_group = space.root_group
-
-    if not root_group:
-        frappe.throw("Wiki Space was created without a root group.")
-
-    for title in DOCUMENTATION_SECTIONS:
-        frappe.get_doc({
-            "doctype": "Wiki Document",
-            "title": title,
-            "wiki_space": space.name,
-            "parent_wiki_document": root_group,
-            "is_group": 1,
-            "is_published": 1,
-        }).insert()

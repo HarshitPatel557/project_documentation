@@ -1,12 +1,11 @@
 {% extends "templates/web.html" %}
-{% block title %}Project Documentation{% endblock %}
+{% block title %}Project Details - Promot Wiki{% endblock %}
 {% block page_content %}
 <div class="pd-app">
   <div class="pd-shell">
     <div class="pd-topbar">
       <div class="pd-brand">
-        <span class="pd-brand-mark">PD</span>
-        <span>Project Documentation</span>
+        <img class="pd-brand-logo" src="/assets/wiki/images/promot-wiki-logo.png" alt="Promot Wiki" style="height:36px; width:auto; object-fit:contain;">
       </div>
       <div class="pd-user" id="pd-current-user">Loading...</div>
     </div>
@@ -15,13 +14,13 @@
       <div class="pd-hero-inner">
         <div>
           <a class="pd-back" href="/project-documentation" style="color:#dce3ff">← My Projects</a>
-          <div class="pd-eyebrow">PROJECT</div>
+          <div class="pd-eyebrow">PROMOT WIKI PROJECT</div>
           <h1 id="pd-project-title">Loading...</h1>
           <p class="pd-subtitle" id="pd-project-meta">Loading project...</p>
           <div style="margin-top:12px"><span class="pd-hero-code" id="pd-project-code">Project</span></div>
         </div>
         <div class="pd-hero-actions">
-          <a id="pd-open-space" class="pd-btn pd-btn-primary" hidden>Open Wiki ↗</a>
+          <a id="pd-open-space" class="pd-btn pd-btn-secondary">Open Wiki ↗</a>
         </div>
       </div>
     </header>

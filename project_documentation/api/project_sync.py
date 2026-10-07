@@ -113,43 +113,60 @@ def sync_projects(dry_run=True, limit=None):
 
     seen_external_ids = set()
     seen_project_codes = set()
-    previous_skip_wiki = getattr(frappe.flags, "skip_project_wiki_creation", False)
-    frappe.flags.skip_project_wiki_creation = True
 
-    try:
-        for index, project in enumerate(projects, start=1):
-            external_project_id = normalize_int(project.get("Project_Id"))
-            project_code = normalize_string(project.get("Project_Code"))
-            project_name = normalize_string(project.get("Project_Name"))
-            try:
-                valid, reason = validate_project(project)
-                if not valid:
-                    result["skipped"] += 1
-                    result["details"].append({
-                        "index": index,
-                        "external_project_id": external_project_id,
-                        "project_code": project_code,
-                        "project_name": project_name,
-                        "status": "SKIPPED",
-                        "reason": reason,
-                    })
-                    continue
+    for index, project in enumerate(projects, start=1):
+        external_project_id = normalize_int(project.get("Project_Id"))
+        project_code = normalize_string(project.get("Project_Code"))
+        project_name = normalize_string(project.get("Project_Name"))
+        try:
+            valid, reason = validate_project(project)
+            if not valid:
+                result["skipped"] += 1
+                result["details"].append({
+                    "index": index,
+                    "external_project_id": external_project_id,
+                    "project_code": project_code,
+                    "project_name": project_name,
+                    "status": "SKIPPED",
+                    "reason": reason,
+                })
+                continue
 
-                if external_project_id in seen_external_ids:
-                    result["duplicate_external_id"] += 1
-                    result["skipped"] += 1
-                    result["details"].append({
-                        "index": index,
-                        "external_project_id": external_project_id,
-                        "project_code": project_code,
-                        "project_name": project_name,
-                        "status": "SKIPPED",
-                        "reason": f"Duplicate Project_Id {external_project_id} appeared more than once in the API response.",
-                    })
-                    continue
-                seen_external_ids.add(external_project_id)
+            if external_project_id in seen_external_ids:
+                result["duplicate_external_id"] += 1
+                result["skipped"] += 1
+                result["details"].append({
+                    "index": index,
+                    "external_project_id": external_project_id,
+                    "project_code": project_code,
+                    "project_name": project_name,
+                    "status": "SKIPPED",
+                    "reason": f"Duplicate Project_Id {external_project_id} appeared more than once in the API response.",
+                })
+                continue
+            seen_external_ids.add(external_project_id)
 
-                if project_code in seen_project_codes:
+            if project_code in seen_project_codes:
+                result["duplicate_project_code"] += 1
+                result["skipped"] += 1
+                result["details"].append({
+                    "index": index,
+                    "external_project_id": external_project_id,
+                    "project_code": project_code,
+                    "project_name": project_name,
+                    "status": "SKIPPED",
+                    "reason": f"Duplicate Project_Code '{project_code}' appeared more than once in the API response.",
+                })
+                continue
+            seen_project_codes.add(project_code)
+
+            values = project_values(project)
+            existing_name = find_existing_project(external_project_id)
+
+            if existing_name:
+                doc = frappe.get_doc("Project Documentation Project", existing_name)
+                code_owner = find_project_by_code(project_code)
+                if code_owner and code_owner != doc.name:
                     result["duplicate_project_code"] += 1
                     result["skipped"] += 1
                     result["details"].append({
@@ -158,116 +175,104 @@ def sync_projects(dry_run=True, limit=None):
                         "project_code": project_code,
                         "project_name": project_name,
                         "status": "SKIPPED",
-                        "reason": f"Duplicate Project_Code '{project_code}' appeared more than once in the API response.",
+                        "frappe_project": doc.name,
+                        "reason": f"Project_Code '{project_code}' already belongs to Frappe project {code_owner}.",
                     })
                     continue
-                seen_project_codes.add(project_code)
 
-                values = project_values(project)
-                existing_name = find_existing_project(external_project_id)
-
-                if existing_name:
-                    doc = frappe.get_doc("Project Documentation Project", existing_name)
-                    code_owner = find_project_by_code(project_code)
-                    if code_owner and code_owner != doc.name:
-                        result["duplicate_project_code"] += 1
-                        result["skipped"] += 1
-                        result["details"].append({
-                            "index": index,
-                            "external_project_id": external_project_id,
-                            "project_code": project_code,
-                            "project_name": project_name,
-                            "status": "SKIPPED",
-                            "frappe_project": doc.name,
-                            "reason": f"Project_Code '{project_code}' already belongs to Frappe project {code_owner}.",
-                        })
-                        continue
-
-                    if dry_run:
-                        result["updated"] += 1
-                        result["details"].append({
-                            "index": index,
-                            "external_project_id": external_project_id,
-                            "project_code": project_code,
-                            "project_name": project_name,
-                            "status": "WOULD UPDATE",
-                            "frappe_project": doc.name,
-                            "reason": "Existing project matched by external_project_id.",
-                        })
-                        continue
-
-                    for fieldname, value in values.items():
-                        setattr(doc, fieldname, value)
-                    doc.save(ignore_permissions=True)
-                    frappe.db.commit()
+                if dry_run:
                     result["updated"] += 1
                     result["details"].append({
                         "index": index,
                         "external_project_id": external_project_id,
                         "project_code": project_code,
                         "project_name": project_name,
-                        "status": "UPDATED",
+                        "status": "WOULD UPDATE",
                         "frappe_project": doc.name,
-                        "reason": "Updated by external_project_id.",
+                        "reason": "Existing project matched by external_project_id.",
                     })
-                else:
-                    code_owner = find_project_by_code(project_code)
-                    if code_owner:
-                        result["duplicate_project_code"] += 1
-                        result["skipped"] += 1
-                        result["details"].append({
-                            "index": index,
-                            "external_project_id": external_project_id,
-                            "project_code": project_code,
-                            "project_name": project_name,
-                            "status": "SKIPPED",
-                            "frappe_project": code_owner,
-                            "reason": "Project_Code already exists but is linked to a different/no external project.",
-                        })
-                        continue
+                    continue
 
-                    if dry_run:
-                        result["created"] += 1
-                        result["details"].append({
-                            "index": index,
-                            "external_project_id": external_project_id,
-                            "project_code": project_code,
-                            "project_name": project_name,
-                            "status": "WOULD CREATE",
-                            "reason": "No existing project matched by external_project_id.",
-                        })
-                        continue
-
-                    doc = frappe.get_doc({
-                        "doctype": "Project Documentation Project",
-                        **values,
+                for fieldname, value in values.items():
+                    setattr(doc, fieldname, value)
+                doc.save(ignore_permissions=True)
+                if doc.is_active and not doc.wiki_space:
+                    from project_documentation.project_documentation.project_hooks import (
+                        initialize_project_documentation,
+                    )
+                    initialize_project_documentation(doc)
+                frappe.db.commit()
+                result["updated"] += 1
+                result["details"].append({
+                    "index": index,
+                    "external_project_id": external_project_id,
+                    "project_code": project_code,
+                    "project_name": project_name,
+                    "status": "UPDATED",
+                    "frappe_project": doc.name,
+                    "reason": "Updated by external_project_id.",
+                })
+            else:
+                code_owner = find_project_by_code(project_code)
+                if code_owner:
+                    result["duplicate_project_code"] += 1
+                    result["skipped"] += 1
+                    result["details"].append({
+                        "index": index,
+                        "external_project_id": external_project_id,
+                        "project_code": project_code,
+                        "project_name": project_name,
+                        "status": "SKIPPED",
+                        "frappe_project": code_owner,
+                        "reason": "Project_Code already exists but is linked to a different/no external project.",
                     })
-                    doc.insert(ignore_permissions=True)
-                    frappe.db.commit()
+                    continue
+
+                if dry_run:
                     result["created"] += 1
                     result["details"].append({
                         "index": index,
                         "external_project_id": external_project_id,
                         "project_code": project_code,
                         "project_name": project_name,
-                        "status": "CREATED",
-                        "frappe_project": doc.name,
-                        "reason": "Created from PROMOT Project API.",
+                        "status": "WOULD CREATE",
+                        "reason": "No existing project matched by external_project_id.",
                     })
+                    continue
 
-            except Exception as e:
-                frappe.db.rollback()
-                result["failed"] += 1
+                doc = frappe.get_doc({
+                    "doctype": "Project Documentation Project",
+                    **values,
+                })
+                doc.insert(ignore_permissions=True)
+                if doc.is_active and not doc.wiki_space:
+                    from project_documentation.project_documentation.project_hooks import (
+                        initialize_project_documentation,
+                    )
+                    initialize_project_documentation(doc)
+                frappe.db.commit()
+                result["created"] += 1
                 result["details"].append({
                     "index": index,
                     "external_project_id": external_project_id,
                     "project_code": project_code,
                     "project_name": project_name,
-                    "status": "FAILED",
-                    "reason": str(e),
+                    "status": "CREATED",
+                    "frappe_project": doc.name,
+                    "reason": "Created from PROMOT Project API.",
                 })
-    finally:
-        frappe.flags.skip_project_wiki_creation = previous_skip_wiki
+
+        except Exception as e:
+            frappe.db.rollback()
+            result["failed"] += 1
+            result["details"].append({
+                "index": index,
+                "external_project_id": external_project_id,
+                "project_code": project_code,
+                "project_name": project_name,
+                "status": "FAILED",
+                "reason": str(e),
+            })
 
     return result
 
