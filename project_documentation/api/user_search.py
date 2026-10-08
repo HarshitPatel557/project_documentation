@@ -3,10 +3,15 @@ from frappe import _
 
 
 @frappe.whitelist()
-def search_mention_users(query: str = "", space: str | None = None, limit: int = 20) -> list[dict]:
+def search_mention_users(
+    query: str = "",
+    space: str | None = None,
+    change_request: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
     """
-    Search users for @ mentions in Frappe Wiki editor.
-    Ranks members of the current project (derived from space) first,
+    Search users for @ mentions and reviewer assignments in Frappe Wiki editor.
+    Ranks members of the current project (derived from space or change_request) first,
     followed by non-project users.
     """
     if frappe.session.user == "Guest":
@@ -14,6 +19,9 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
 
     query = (query or "").strip().lower()
     limit = int(limit or 20)
+
+    if change_request and not space:
+        space = frappe.db.get_value("Wiki Change Request", change_request, "wiki_space")
 
     project_name = None
     if space:
@@ -27,17 +35,25 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
     project_user_ids = set()
 
     if project_name:
-        # Fetch active project members from Project User Mapping
         filters = {
             "project": project_name,
             "still_involved": 1,
         }
+        or_filters = None
+        if query:
+            or_filters = {
+                "employee_name": ["like", f"%{query}%"],
+                "user": ["like", f"%{query}%"],
+                "project_designation": ["like", f"%{query}%"],
+            }
+
         mappings = frappe.get_all(
             "Project User Mapping",
             filters=filters,
+            or_filters=or_filters,
             fields=["user", "employee_name", "project_designation"],
             order_by="employee_name asc",
-            limit=50,
+            limit=limit,
         )
 
         for m in mappings:
@@ -48,16 +64,6 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
             if not user_id and not name:
                 continue
 
-            # Check query match
-            if query:
-                match = (
-                    query in (name.lower())
-                    or (user_id and query in user_id.lower())
-                    or (designation and query in designation.lower())
-                )
-                if not match:
-                    continue
-
             user_key = user_id or name
             if user_key in project_user_ids:
                 continue
@@ -66,6 +72,7 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
             project_members.append(
                 {
                     "id": user_key,
+                    "value": user_id or user_key,
                     "label": name or user_id,
                     "designation": designation,
                     "group": "PROJECT MEMBERS",
@@ -75,20 +82,34 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
 
     # Fetch other users from standard User table
     other_users = []
-    user_fields = ["name", "full_name", "first_name", "last_name", "email", "custom_designation"]
-    
+    user_fields = [
+        "name",
+        "full_name",
+        "first_name",
+        "last_name",
+        "email",
+        "custom_designation",
+    ]
     user_filters = {
         "enabled": 1,
-        "user_type": "System User",
         "name": ["not in", list(project_user_ids) + ["Guest"]],
     }
+    user_or_filters = None
+    if query:
+        user_or_filters = {
+            "name": ["like", f"%{query}%"],
+            "full_name": ["like", f"%{query}%"],
+            "email": ["like", f"%{query}%"],
+            "custom_designation": ["like", f"%{query}%"],
+        }
 
     raw_users = frappe.get_all(
         "User",
         filters=user_filters,
+        or_filters=user_or_filters,
         fields=user_fields,
         order_by="full_name asc",
-        limit=50,
+        limit=limit,
     )
 
     for u in raw_users:
@@ -100,19 +121,10 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
         if not user_id:
             continue
 
-        if query:
-            match = (
-                query in user_id.lower()
-                or (full_name and query in full_name.lower())
-                or (email and query in email.lower())
-                or (designation and query in designation.lower())
-            )
-            if not match:
-                continue
-
         other_users.append(
             {
                 "id": user_id,
+                "value": user_id,
                 "label": full_name or user_id,
                 "designation": designation or email,
                 "group": "OTHER USERS" if project_name else "USERS",
@@ -123,5 +135,5 @@ def search_mention_users(query: str = "", space: str | None = None, limit: int =
     # Limit results while ensuring project members are ranked first
     max_pm = min(len(project_members), limit)
     remaining_limit = max(0, limit - max_pm)
-    
+
     return project_members[:max_pm] + other_users[:remaining_limit]
