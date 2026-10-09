@@ -32,7 +32,7 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Access Level",
-      "options": "Read\nWrite",
+      "options": "Read\nWrite\nReview\nReviewer",
       "reqd": 1
     }
   ],

@@ -40,6 +40,29 @@ def _current_user(user=None):
     return user
 
 
+def _default_access_level_for_designation(
+    project_designation: str | None, actual_designation: str | None = None
+) -> str:
+    """Return default/initial documentation access level based on project role."""
+    for des in (project_designation, actual_designation):
+        if not des:
+            continue
+        d = " ".join(str(des).strip().lower().replace("_", " ").split())
+        if d in {
+            "pm",
+            "project manager",
+            "sr project manager",
+            "sr. project manager",
+            "technical project manager",
+        }:
+            return "Manager"
+        if d in {"ba"} or "business analyst" in d:
+            return "Write"
+        if d in {"tl", "lead"} or "tech lead" in d or "technical lead" in d:
+            return "Review"
+    return "Read"
+
+
 def _active_pm_projects(user=None):
     user = _current_user(user)
 
@@ -320,6 +343,8 @@ def _sync_user_wiki_roles(user):
     recreated/checked during ordinary user synchronization.
     """
     user = _current_user(user)
+    if user == "Administrator":
+        return
 
     pm_projects = _active_pm_projects(user)
     is_pm = bool(pm_projects)
@@ -329,9 +354,6 @@ def _sync_user_wiki_roles(user):
         filters={"user": user},
         fields=["project", "access_level"],
     )
-    # Only resolve the projects this user has explicit access to. The old
-    # implementation loaded every active project on every role sync, which
-    # became expensive as the project table grew.
     access_project_names = [row.project for row in access_rows if row.project]
     if access_project_names:
         active_projects = set(
@@ -348,22 +370,39 @@ def _sync_user_wiki_roles(user):
     else:
         access_rows = []
 
-    is_involved_member = bool(
-        frappe.db.exists(
-            "Project User Mapping",
-            {"user": user, "still_involved": 1},
-        )
+    mappings = frappe.get_all(
+        "Project User Mapping",
+        filters={"user": user, "still_involved": 1},
+        fields=["project", "project_designation", "actual_designation"],
     )
+    is_involved_member = bool(mappings)
 
-    roles = _user_roles(user)
+    explicit_by_project = {row.project: row.access_level for row in access_rows if row.project}
+    effective_levels = set()
+    for m in mappings:
+        if m.project in explicit_by_project:
+            effective_levels.add(explicit_by_project[m.project])
+        else:
+            effective_levels.add(_default_access_level_for_designation(m.project_designation, m.actual_designation))
+
+    has_write = "Write" in effective_levels or any(row.access_level == "Write" for row in access_rows)
+    has_review = bool({"Review", "Reviewer", "Approver"} & effective_levels)
+    has_read = "Read" in effective_levels or any(row.access_level == "Read" for row in access_rows) or is_involved_member
+
     if is_pm:
         _add_user_roles(user, WIKI_MANAGER_ROLE, PD_MANAGER_ROLE, WIKI_USER_ROLE)
         _remove_user_roles(user, WIKI_APPROVER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE)
-    elif any(row.access_level == "Write" for row in access_rows):
-        _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE)
+    elif has_write:
+        _remove_user_roles(user, WIKI_MANAGER_ROLE, PD_MANAGER_ROLE, PD_READER_ROLE)
         _add_user_roles(user, PD_WRITER_ROLE, WIKI_USER_ROLE)
-        _remove_user_roles(user, PD_READER_ROLE)
-    elif any(row.access_level == "Read" for row in access_rows) or is_involved_member:
+        if has_review:
+            _add_user_roles(user, WIKI_APPROVER_ROLE)
+        else:
+            _remove_user_roles(user, WIKI_APPROVER_ROLE)
+    elif has_review:
+        _remove_user_roles(user, WIKI_MANAGER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE)
+        _add_user_roles(user, WIKI_APPROVER_ROLE, PD_READER_ROLE, WIKI_USER_ROLE)
+    elif has_read:
         _remove_user_roles(user, WIKI_MANAGER_ROLE, WIKI_APPROVER_ROLE, PD_MANAGER_ROLE, PD_WRITER_ROLE)
         _add_user_roles(user, PD_READER_ROLE, WIKI_USER_ROLE)
     else:
@@ -519,8 +558,35 @@ def get_project_members(project):
             for row in access_rows
         }
 
+    has_new_access_records = False
     for row in rows:
-        row["access_level"] = access_by_user.get(row.user)
+        explicit = access_by_user.get(row.user)
+        if explicit:
+            row["access_level"] = "Review" if explicit in ("Reviewer", "Review") else explicit
+        else:
+            default_level = _default_access_level_for_designation(
+                row.project_designation, row.actual_designation
+            )
+            initial_access = "Review" if default_level in ("Reviewer", "Review") else (
+                "Write" if default_level == "Write" else "Read"
+            )
+            try:
+                doc = frappe.get_doc({
+                    "doctype": ACCESS_DOCTYPE,
+                    "project": project,
+                    "user": row.user,
+                    "access_level": initial_access,
+                })
+                doc.insert(ignore_permissions=True)
+                _sync_user_wiki_roles(row.user)
+                has_new_access_records = True
+            except Exception:
+                pass
+            row["access_level"] = initial_access
+            access_by_user[row.user] = initial_access
+
+    if has_new_access_records:
+        frappe.db.commit()
 
     return rows
 
@@ -664,8 +730,11 @@ def set_member_access(project, user, access_level):
     member = _validate_access_user(project, user)
 
     access_level = (access_level or "").strip().title()
-    if access_level not in {"Read", "Write"}:
-        frappe.throw("Access level must be Read or Write.")
+    if access_level not in {"Read", "Write", "Review", "Reviewer"}:
+        frappe.throw("Access level must be Read, Write, or Review.")
+
+    if access_level == "Reviewer":
+        access_level = "Review"
 
     existing = frappe.db.get_value(
         ACCESS_DOCTYPE,
@@ -736,6 +805,17 @@ def get_space_access(space, user=None):
     """
     user = _current_user(user)
 
+    if user == "Administrator" or "System Manager" in frappe.get_roles(user):
+        return {
+            "is_project_space": True,
+            "can_read": True,
+            "can_write": True,
+            "can_manage": True,
+            "can_review": True,
+            "access_level": "Administrator",
+            "project": _space_project(space),
+        }
+
     project_info = frappe.db.get_value(
         "Project Documentation Project",
         {"wiki_space": space},
@@ -769,25 +849,51 @@ def get_space_access(space, user=None):
             "is_project_space": True,
             "can_read": True,
             "can_write": True,
+            "can_manage": True,
+            "can_review": True,
             "access_level": "Manager",
             "project": project,
         }
 
     level = _access_level(project, user)
     if not level:
-        is_member = bool(
-            frappe.db.exists(
-                "Project User Mapping",
-                {"project": project, "user": user, "still_involved": 1},
-            )
+        mapping = frappe.db.get_value(
+            "Project User Mapping",
+            {"project": project, "user": user, "still_involved": 1},
+            ["project_designation", "actual_designation"],
+            as_dict=True,
         )
-        if is_member:
-            level = "Read"
+        if mapping:
+            default_level = _default_access_level_for_designation(
+                mapping.project_designation, mapping.actual_designation
+            )
+            level = "Review" if default_level in ("Reviewer", "Review") else (
+                "Write" if default_level == "Write" else "Read"
+            )
+            try:
+                doc = frappe.get_doc({
+                    "doctype": ACCESS_DOCTYPE,
+                    "project": project,
+                    "user": user,
+                    "access_level": level,
+                })
+                doc.insert(ignore_permissions=True)
+                _sync_user_wiki_roles(user)
+                frappe.db.commit()
+            except Exception:
+                frappe.db.rollback()
+
+    is_write = level == "Write"
+    is_review = level in {"Review", "Reviewer", "Approver"}
+    is_manage = level == "Manager"
+    can_read = level in {"Read", "Write", "Review", "Reviewer", "Approver", "Manager"}
 
     return {
         "is_project_space": True,
-        "can_read": level in {"Read", "Write"},
-        "can_write": level == "Write",
+        "can_read": can_read,
+        "can_write": is_write or is_manage,
+        "can_review": is_review or is_manage,
+        "can_manage": is_manage,
         "access_level": level,
         "project": project,
     }
@@ -900,18 +1006,17 @@ def custom_get_space_capabilities(space: str) -> dict:
     project = _space_project(space)
     if project:
         user = frappe.session.user
-        if user == "Administrator":
+        if user == "Administrator" or "System Manager" in frappe.get_roles(user):
             return {"can_read": True, "can_write": True, "can_contribute": True}
-        is_pm = bool(project in _active_pm_projects(user))
-        level = _access_level(project, user)
-        can_read = is_pm or level in {"Read", "Write"}
-        # can_write gates approve & merge buttons in the Wiki SPA UI
-        can_write = is_pm
-        can_contribute = is_pm or level == "Write"
+        access = get_space_access(space, user)
+        can_read = bool(access.get("can_read"))
+        is_write = bool(access.get("can_write"))
+        is_manage = bool(access.get("can_manage"))
+        is_review = bool(access.get("can_review"))
         return {
             "can_read": can_read,
-            "can_write": can_write,
-            "can_contribute": can_contribute,
+            "can_write": is_manage or is_review,
+            "can_contribute": is_manage or is_write,
         }
     from wiki.api import get_space_capabilities as wiki_get_space_capabilities
     return wiki_get_space_capabilities(space)
@@ -929,10 +1034,15 @@ def custom_get_user_info() -> dict:
     if user == "Administrator":
         return info
 
-    # Ensure any authenticated user has the baseline Wiki User entry to access the Wiki SPA
-    existing_roles = [r.get("role") if isinstance(r, dict) else r.role for r in (info.get("roles") or [])]
-    if "Wiki User" not in existing_roles:
-        info["roles"] = list(info.get("roles") or []) + [{"role": "Wiki User"}]
+    user_roles = set(frappe.get_roles(user))
+    pd_roles = {PD_MANAGER_ROLE, PD_WRITER_ROLE, PD_READER_ROLE}
+
+    # If the user has any Project Documentation role or active PM/member project,
+    # supply the baseline "Wiki User" role descriptor so the Wiki frontend SPA allows entry.
+    if pd_roles.intersection(user_roles) or _active_pm_projects(user):
+        existing_roles = [r.get("role") if isinstance(r, dict) else r.role for r in (info.get("roles") or [])]
+        if "Wiki User" not in existing_roles:
+            info["roles"] = list(info.get("roles") or []) + [{"role": "Wiki User"}]
 
     return info
 
@@ -1089,7 +1199,7 @@ def _readable_project_spaces(user):
         ACCESS_DOCTYPE,
         filters={
             "user": user,
-            "access_level": ["in", ["Read", "Write"]],
+            "access_level": ["in", ["Read", "Write", "Review", "Reviewer"]],
         },
         fields=["project"],
     )
@@ -1419,3 +1529,29 @@ def api_remove_member_access(project, user):
 @frappe.whitelist(allow_guest=False)
 def api_get_space_access(space):
     return get_space_access(space)
+
+
+def sync_project_user_mapping_access(doc, method=None):
+    """When a project user is added/synced into the project, assign their default documentation access."""
+    if not doc.user or not doc.project or not getattr(doc, "still_involved", 1):
+        return
+    if frappe.db.exists(ACCESS_DOCTYPE, {"project": doc.project, "user": doc.user}):
+        return
+    default_level = _default_access_level_for_designation(
+        doc.project_designation, doc.actual_designation
+    )
+    initial_access = "Review" if default_level in ("Reviewer", "Review") else (
+        "Write" if default_level == "Write" else "Read"
+    )
+    try:
+        access_doc = frappe.get_doc({
+            "doctype": ACCESS_DOCTYPE,
+            "project": doc.project,
+            "user": doc.user,
+            "access_level": initial_access,
+        })
+        access_doc.insert(ignore_permissions=True)
+        _sync_user_wiki_roles(doc.user)
+    except Exception:
+        pass
+

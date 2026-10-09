@@ -26,10 +26,14 @@ frappe.ready(() => {
   }
 
   function updateCount(visible = allMembers) {
-    const read = allMembers.filter(m => m.access_level === "Read").length;
+    const read = allMembers.filter(m => (m.access_level || "Read") === "Read").length;
     const write = allMembers.filter(m => m.access_level === "Write").length;
-    $("pd-member-count").textContent =
-      `${visible.length} shown · ${read} Read · ${write} Write`;
+    const review = allMembers.filter(m => m.access_level === "Review" || m.access_level === "Reviewer").length;
+    const parts = [`${visible.length} shown`];
+    if (read) parts.push(`${read} Read`);
+    if (write) parts.push(`${write} Write`);
+    if (review) parts.push(`${review} Review`);
+    $("pd-member-count").textContent = parts.join(" · ");
   }
 
   function renderMembers(members) {
@@ -60,6 +64,7 @@ frappe.ready(() => {
             ${members.map(m => {
               const name = m.employee_name || m.user || "Unknown";
               const initial = esc(name.charAt(0).toUpperCase());
+              const level = m.access_level || "Read";
               return `
               <tr>
                 <td>
@@ -75,9 +80,9 @@ frappe.ready(() => {
                 <td><span class="pd-user-cell">${esc(m.user || "No Frappe User")}</span></td>
                 <td>
                   <select class="pd-select" data-user="${esc(m.user || "")}" ${m.user ? "" : "disabled"}>
-                    <option value="">No access</option>
-                    <option value="Read" ${m.access_level === "Read" ? "selected" : ""}>Read</option>
-                    <option value="Write" ${m.access_level === "Write" ? "selected" : ""}>Write</option>
+                    <option value="Read" ${level === "Read" ? "selected" : ""}>Read</option>
+                    <option value="Write" ${level === "Write" ? "selected" : ""}>Write</option>
+                    <option value="Review" ${level === "Review" || level === "Reviewer" ? "selected" : ""}>Review</option>
                   </select>
                 </td>
               </tr>`;
