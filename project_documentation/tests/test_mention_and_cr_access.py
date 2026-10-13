@@ -46,18 +46,22 @@ class TestMentionAndCRAccess(FrappeTestCase):
         else:
             frappe.db.set_value("User", "test_writer_user@example.com", "enabled", 1)
 
-        # 3. Create Mentioned user
-        if not frappe.db.exists("User", "test_mentioned_user@example.com"):
-            m = frappe.new_doc("User")
-            m.email = "test_mentioned_user@example.com"
-            m.first_name = "Test"
-            m.last_name = "Mentioned"
-            m.send_welcome_email = 0
-            m.flags.ignore_permissions = True
-            m.flags.ignore_password_policy = True
-            m.db_insert()
-        else:
-            frappe.db.set_value("User", "test_mentioned_user@example.com", "enabled", 1)
+        # 3. Create Mentioned users
+        for email, first, last in [
+            ("test_mentioned_user@example.com", "Test", "Mentioned"),
+            ("test_mentioned_user_2@example.com", "Test2", "Mentioned2"),
+        ]:
+            if not frappe.db.exists("User", email):
+                m = frappe.new_doc("User")
+                m.email = email
+                m.first_name = first
+                m.last_name = last
+                m.send_welcome_email = 0
+                m.flags.ignore_permissions = True
+                m.flags.ignore_password_policy = True
+                m.db_insert()
+            else:
+                frappe.db.set_value("User", email, "enabled", 1)
 
         # 4. Create Project & Space
         if not frappe.db.exists("Project Documentation Project", "TMP"):
@@ -101,6 +105,18 @@ class TestMentionAndCRAccess(FrappeTestCase):
         writer_map.still_involved = 1
         writer_map.insert(ignore_permissions=True)
 
+        for email, first, last in [
+            ("test_mentioned_user@example.com", "Test", "Mentioned"),
+            ("test_mentioned_user_2@example.com", "Test2", "Mentioned2"),
+        ]:
+            m_map = frappe.new_doc("Project User Mapping")
+            m_map.project = "TMP"
+            m_map.user = email
+            m_map.employee_name = f"{first} {last}"
+            m_map.project_designation = "Member"
+            m_map.still_involved = 1
+            m_map.insert(ignore_permissions=True)
+
         # Set Project Documentation Access
         frappe.db.delete("Project Documentation Access", {"project": "TMP"})
         acc = frappe.new_doc("Project Documentation Access")
@@ -109,8 +125,17 @@ class TestMentionAndCRAccess(FrappeTestCase):
         acc.access_level = "Write"
         acc.insert(ignore_permissions=True)
 
+        for email in ("test_mentioned_user@example.com", "test_mentioned_user_2@example.com"):
+            m_acc = frappe.new_doc("Project Documentation Access")
+            m_acc.project = "TMP"
+            m_acc.user = email
+            m_acc.access_level = "Read"
+            m_acc.insert(ignore_permissions=True)
+
         _sync_user_wiki_roles("test_pm_user@example.com")
         _sync_user_wiki_roles("test_writer_user@example.com")
+        _sync_user_wiki_roles("test_mentioned_user@example.com")
+        _sync_user_wiki_roles("test_mentioned_user_2@example.com")
 
     def test_extract_user_mentions(self):
         text = 'Hello <span data-type="mention" data-id="test_mentioned_user@example.com" data-label="Test Mentioned">@Test Mentioned</span>, please review.'
@@ -262,22 +287,205 @@ class TestMentionAndCRAccess(FrappeTestCase):
         self.assertFalse(unrelated_caps["can_contribute"])
         self.assertFalse(unrelated_caps["can_write"])
 
-    def test_mention_syncs_to_assigned_to_me(self):
+    def test_mention_tagging_stored_separately_from_assignment(self):
         cr = self._create_test_cr(
             "CR with Mention",
             description='<p>Check this <span data-type="mention" data-id="test_mentioned_user@example.com" data-label="Test Mentioned">@Test Mentioned</span></p>',
         )
 
-        # Run mention sync
         sync_cr_mention_assignments(cr.name)
-
-        # Reload CR and check _assign
         cr.reload()
+
+        # 1. Stored in _user_tags
+        tags = [t.strip() for t in (cr.get("_user_tags") or "").split(",") if t.strip()]
+        self.assertIn("test_mentioned_user@example.com", tags)
+
+        # 2. NOT in _assign
         raw_assign = cr.get("_assign") or "[]"
         assignees = json.loads(raw_assign) if isinstance(raw_assign, str) else raw_assign
-        self.assertIn("test_mentioned_user@example.com", assignees)
+        self.assertNotIn("test_mentioned_user@example.com", assignees)
 
-        # Mentioned user should have permission to read the CR
+        # 3. Visible in Tagged to Me filter, but NOT in Assigned to Me filter
         frappe.set_user("test_mentioned_user@example.com")
-        has_perm = frappe.has_permission("Wiki Change Request", "read", doc=cr, user="test_mentioned_user@example.com")
-        self.assertTrue(has_perm)
+        tagged_crs = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name", "_user_tags", "_assign", "status"],
+            filters={"_user_tags": ["like", "%test_mentioned_user@example.com%"]},
+        )
+        self.assertIn(cr.name, [c["name"] for c in tagged_crs])
+
+        assigned_crs = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name", "_user_tags", "_assign", "status"],
+            filters={
+                "_assign": ["like", "%test_mentioned_user@example.com%"],
+                "status": ["in", ["In Review", "Approved"]],
+            },
+        )
+        self.assertNotIn(cr.name, [c["name"] for c in assigned_crs])
+
+    def test_multiple_mentions_and_removal(self):
+        # 1. Mention two users
+        cr = self._create_test_cr(
+            "CR with Multiple Mentions",
+            description=(
+                '<p><span data-type="mention" data-id="test_mentioned_user@example.com" data-label="Test 1">@Test 1</span> '
+                'and <span data-type="mention" data-id="test_mentioned_user_2@example.com" data-label="Test 2">@Test 2</span></p>'
+            ),
+        )
+        sync_cr_mention_assignments(cr.name)
+        cr.reload()
+
+        tags = [t.strip() for t in (cr.get("_user_tags") or "").split(",") if t.strip()]
+        self.assertIn("test_mentioned_user@example.com", tags)
+        self.assertIn("test_mentioned_user_2@example.com", tags)
+
+        # 2. Remove mention for user 1, keep user 2
+        cr.description = '<p><span data-type="mention" data-id="test_mentioned_user_2@example.com" data-label="Test 2">@Test 2</span></p>'
+        cr.save(ignore_permissions=True)
+        sync_cr_mention_assignments(cr.name)
+        cr.reload()
+
+        tags_after_edit = [t.strip() for t in (cr.get("_user_tags") or "").split(",") if t.strip()]
+        self.assertNotIn("test_mentioned_user@example.com", tags_after_edit)
+        self.assertIn("test_mentioned_user_2@example.com", tags_after_edit)
+
+        # User 1 no longer sees it in tagged filter
+        frappe.set_user("test_mentioned_user@example.com")
+        tagged_for_user1 = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_user_tags": ["like", "%test_mentioned_user@example.com%"]},
+        )
+        self.assertNotIn(cr.name, [c["name"] for c in tagged_for_user1])
+
+        # User 2 still sees it
+        frappe.set_user("test_mentioned_user_2@example.com")
+        tagged_for_user2 = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_user_tags": ["like", "%test_mentioned_user_2@example.com%"]},
+        )
+        self.assertIn(cr.name, [c["name"] for c in tagged_for_user2])
+
+        # 3. Remove all mentions
+        cr.description = "<p>No mentions anymore</p>"
+        cr.save(ignore_permissions=True)
+        sync_cr_mention_assignments(cr.name)
+        cr.reload()
+
+        tags_cleared = [t.strip() for t in (cr.get("_user_tags") or "").split(",") if t.strip()]
+        self.assertEqual(tags_cleared, [])
+
+    def test_tagged_view_across_pending_approved_and_rejected_statuses(self):
+        user_email = "test_mentioned_user@example.com"
+        mention_html = f'<span data-type="mention" data-id="{user_email}" data-label="Mentioned">@Mentioned</span>'
+
+        # Pending CR
+        cr_pending = self._create_test_cr("Pending CR", description=mention_html)
+        cr_pending.status = "In Review"
+        cr_pending.save(ignore_permissions=True)
+        sync_cr_mention_assignments(cr_pending.name)
+
+        # Approved CR
+        cr_approved = self._create_test_cr("Approved CR", description=mention_html)
+        cr_approved.status = "Approved"
+        cr_approved.save(ignore_permissions=True)
+        sync_cr_mention_assignments(cr_approved.name)
+
+        # Rejected CR
+        cr_rejected = self._create_test_cr("Rejected CR", description=mention_html)
+        cr_rejected.status = "Rejected"
+        cr_rejected.save(ignore_permissions=True)
+        sync_cr_mention_assignments(cr_rejected.name)
+
+        frappe.set_user(user_email)
+        tagged_list = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name", "status"],
+            filters={"_user_tags": ["like", f"%{user_email}%"]},
+        )
+        found_names = [c["name"] for c in tagged_list]
+
+        self.assertIn(cr_pending.name, found_names)
+        self.assertIn(cr_approved.name, found_names)
+        self.assertIn(cr_rejected.name, found_names)
+
+    def test_approved_cr_cleared_assignment_disappears_from_assigned_remains_in_tagged(self):
+        user_email = "test_mentioned_user@example.com"
+        mention_html = f'<span data-type="mention" data-id="{user_email}" data-label="Mentioned">@Mentioned</span>'
+
+        cr = self._create_test_cr("CR for Approval Test", description=mention_html)
+        sync_cr_mention_assignments(cr.name)
+
+        # Explicit reviewer assignment
+        from frappe.desk.form.assign_to import add as add_assignment, remove as remove_assignment
+        add_assignment({
+            "assign_to": [user_email],
+            "doctype": "Wiki Change Request",
+            "name": cr.name,
+        })
+        cr.reload()
+
+        # Both assigned and tagged
+        frappe.set_user(user_email)
+        assigned_list = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_assign": ["like", f"%{user_email}%"], "status": ["in", ["In Review", "Approved"]]},
+        )
+        tagged_list = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_user_tags": ["like", f"%{user_email}%"]},
+        )
+        self.assertIn(cr.name, [c["name"] for c in assigned_list])
+        self.assertIn(cr.name, [c["name"] for c in tagged_list])
+
+        # Manager approves CR
+        frappe.set_user("test_pm_user@example.com")
+        pm_only_approve_change_request(cr.name)
+        cr.reload()
+        self.assertEqual(cr.status, "Approved")
+
+        # Assignment is cleared (reviewer finished review)
+        remove_assignment("Wiki Change Request", cr.name, user_email)
+        cr.reload()
+
+        # Verify: Disappeared from Assigned to Me, but remains visible in Tagged to Me
+        frappe.set_user(user_email)
+        assigned_list_after = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_assign": ["like", f"%{user_email}%"], "status": ["in", ["In Review", "Approved"]]},
+        )
+        tagged_list_after = frappe.client.get_list(
+            "Wiki Change Request",
+            fields=["name"],
+            filters={"_user_tags": ["like", f"%{user_email}%"]},
+        )
+        self.assertNotIn(cr.name, [c["name"] for c in assigned_list_after])
+        self.assertIn(cr.name, [c["name"] for c in tagged_list_after])
+
+    def test_tagged_user_permissions_enforced(self):
+        user_email = "test_mentioned_user@example.com"
+        mention_html = f'<span data-type="mention" data-id="{user_email}" data-label="Mentioned">@Mentioned</span>'
+        cr = self._create_test_cr("CR for Permissions Test", description=mention_html)
+        sync_cr_mention_assignments(cr.name)
+
+        # Tagged user with project space access can read the CR
+        frappe.set_user(user_email)
+        can_read = frappe.has_permission("Wiki Change Request", "read", doc=cr, user=user_email)
+        self.assertTrue(can_read)
+
+        # Unrelated user without project space access CANNOT read the CR, even if mentioned
+        unrelated_email = "unrelated_user@example.com"
+        cr_unrelated = self._create_test_cr(
+            "CR Unrelated Mention",
+            description=f'<span data-type="mention" data-id="{unrelated_email}" data-label="Unrelated">@Unrelated</span>',
+        )
+        sync_cr_mention_assignments(cr_unrelated.name)
+
+        frappe.set_user(unrelated_email)
+        can_unrelated_read = frappe.has_permission("Wiki Change Request", "read", doc=cr_unrelated, user=unrelated_email)
+        self.assertFalse(can_unrelated_read)

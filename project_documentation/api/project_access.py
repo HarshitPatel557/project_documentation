@@ -1413,7 +1413,7 @@ def _sync_cr_mentions_internal(doc):
     except Exception:
         return
 
-    if not cr or not cr.get("head_revision"):
+    if not cr:
         return
 
     mentioned_users = set()
@@ -1424,69 +1424,77 @@ def _sync_cr_mentions_internal(doc):
         mentioned_users.update(extract_user_mentions_from_text(cr.description))
 
     # Check all content blobs linked to the CR's head revision
-    revision_items = frappe.get_all(
-        "Wiki Revision Item",
-        filters={"revision": cr.head_revision, "is_deleted": 0},
-        fields=["content_blob"],
-    )
-    blob_names = [it.content_blob for it in revision_items if it.content_blob]
-    if blob_names:
-        blobs = frappe.get_all(
-            "Wiki Content Blob",
-            filters={"name": ["in", blob_names]},
-            fields=["content"],
+    if cr.get("head_revision"):
+        revision_items = frappe.get_all(
+            "Wiki Revision Item",
+            filters={"revision": cr.head_revision, "is_deleted": 0},
+            fields=["content_blob"],
         )
-        for b in blobs:
-            if b.content:
-                mentioned_users.update(extract_user_mentions_from_text(b.content))
-
-    if not mentioned_users:
-        return
-
-    # Check which users exist and are enabled
-    valid_users = set(
-        frappe.get_all(
-            "User",
-            filters={"name": ["in", list(mentioned_users)], "enabled": 1},
-            pluck="name",
-        )
-    )
-
-    if not valid_users:
-        return
-
-    existing_assigned = set()
-    raw_assign = cr.get("_assign")
-    if raw_assign:
-        try:
-            parsed = json.loads(raw_assign) if isinstance(raw_assign, str) else raw_assign
-            if isinstance(parsed, list):
-                existing_assigned = set(parsed)
-        except Exception:
-            pass
-
-    users_to_assign = valid_users - existing_assigned
-    if not users_to_assign:
-        return
-
-    from frappe.desk.form.assign_to import _add as add_assignment
-
-    for user in users_to_assign:
-        try:
-            add_assignment(
-                {
-                    "assign_to": [user],
-                    "doctype": "Wiki Change Request",
-                    "name": cr.name,
-                    "description": f"Mentioned in Change Request: {cr.title or cr.name}",
-                },
-                ignore_permissions=True,
+        blob_names = [it.content_blob for it in revision_items if it.content_blob]
+        if blob_names:
+            blobs = frappe.get_all(
+                "Wiki Content Blob",
+                filters={"name": ["in", blob_names]},
+                fields=["content"],
             )
-            # Guarantee read permission for the mentioned user
-            if not frappe.db.exists("DocShare", {"user": user, "share_doctype": "Wiki Change Request", "share_name": cr.name}):
-                frappe.share.add("Wiki Change Request", cr.name, user=user, read=1, flags={"ignore_permissions": True})
-        except Exception as e:
-            frappe.log_error(f"Failed to assign mentioned user {user} to CR {cr.name}: {e}")
+            for b in blobs:
+                if b.content:
+                    mentioned_users.update(extract_user_mentions_from_text(b.content))
+
+    valid_users = set()
+    if mentioned_users:
+        valid_users = set(
+            frappe.get_all(
+                "User",
+                filters={"name": ["in", list(mentioned_users)], "enabled": 1},
+                pluck="name",
+            )
+        )
+
+    # Format tags for _user_tags: Frappe tags are comma-delimited strings like ',user1,user2,'
+    existing_tags_raw = (
+        cr.get("_user_tags")
+        or frappe.db.get_value("Wiki Change Request", cr.name, "_user_tags")
+        or ""
+    )
+    existing_tags = [t.strip() for t in existing_tags_raw.split(",") if t.strip()]
+
+    # Preserve any non-user tags if present, but sync user mentions
+    user_tags_in_existing = (
+        set(frappe.get_all("User", filters={"name": ["in", existing_tags]}, pluck="name"))
+        if existing_tags
+        else set()
+    )
+    non_user_tags = [t for t in existing_tags if t not in user_tags_in_existing]
+
+    final_tags_list = sorted(set(non_user_tags) | valid_users)
+    new_tags = ("," + ",".join(final_tags_list) + ",") if final_tags_list else ""
+
+    if existing_tags_raw != new_tags:
+        frappe.db.set_value("Wiki Change Request", cr.name, "_user_tags", new_tags, update_modified=False)
+        if hasattr(cr, "_user_tags"):
+            cr._user_tags = new_tags
+
+    # Clean up any mention ToDos that were previously created as assignments under the old behavior
+    mention_todos = frappe.get_all(
+        "ToDo",
+        filters={
+            "reference_type": "Wiki Change Request",
+            "reference_name": cr.name,
+            "description": ["like", "Mentioned in Change Request%"],
+        },
+        fields=["name", "allocated_to"],
+    )
+    if mention_todos:
+        for todo in mention_todos:
+            try:
+                from frappe.desk.form.assign_to import remove as remove_assignment
+                remove_assignment("Wiki Change Request", cr.name, todo.allocated_to)
+            except Exception:
+                try:
+                    frappe.db.delete("ToDo", {"name": todo.name})
+                except Exception:
+                    pass
 
 
 
