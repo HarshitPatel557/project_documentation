@@ -257,17 +257,23 @@ def _user_roles(user):
 
 
 def _clear_user_role_cache(user):
-    """Clear cached roles after direct Has Role changes."""
+    """Clear cached roles and permissions after direct Has Role changes."""
+    for key in ("roles", "user_roles"):
+        try:
+            frappe.cache.hdel(key, user)
+        except Exception:
+            pass
     try:
-        frappe.cache.hdel("roles", user)
-    except Exception:
-        pass
-    try:
-        frappe.cache.hdel("user_roles", user)
+        frappe.cache.delete_keys(f"user:{user}")
     except Exception:
         pass
     try:
         frappe.clear_cache(user=user)
+    except Exception:
+        pass
+    try:
+        import frappe.cache_manager
+        frappe.cache_manager.clear_user_cache(user)
     except Exception:
         pass
 
@@ -760,6 +766,21 @@ def set_member_access(project, user, access_level):
     _sync_user_wiki_roles(user)
     frappe.db.commit()
 
+    try:
+        wiki_space = frappe.db.get_value("Project Documentation Project", project, "wiki_space")
+        frappe.publish_realtime(
+            "project_access_updated",
+            {
+                "project": project,
+                "wiki_space": wiki_space,
+                "user": user,
+                "access_level": access_level,
+            },
+            user=user,
+        )
+    except Exception:
+        pass
+
     return {
         "success": True,
         "project": project,
@@ -789,6 +810,21 @@ def remove_member_access(project, user):
 
     _sync_user_wiki_roles(user)
     frappe.db.commit()
+
+    try:
+        wiki_space = frappe.db.get_value("Project Documentation Project", project, "wiki_space")
+        frappe.publish_realtime(
+            "project_access_updated",
+            {
+                "project": project,
+                "wiki_space": wiki_space,
+                "user": user,
+                "access_level": None,
+            },
+            user=user,
+        )
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -1001,25 +1037,88 @@ def pm_only_review_action(name, reviewer=None, status=None, comment=None):
 
 
 @frappe.whitelist()
-def custom_get_space_capabilities(space: str) -> dict:
+def _get_space_doc_counts(space: str) -> dict:
+    space_route, root_group = frappe.db.get_value("Wiki Space", space, ["route", "root_group"]) or ("", "")
+    total_docs = frappe.db.count("Wiki Document", {"wiki_space": space, "is_group": 0})
+    pub_docs = frappe.db.count("Wiki Document", {"wiki_space": space, "is_group": 0, "is_published": 1})
+    if total_docs == 0 and root_group:
+        total_docs = frappe.db.count("Wiki Document", {"parent_wiki_document": root_group, "is_group": 0})
+        pub_docs = frappe.db.count("Wiki Document", {"parent_wiki_document": root_group, "is_group": 0, "is_published": 1})
+    if total_docs == 0 and space_route:
+        clean_route = space_route.strip("/")
+        total_docs = frappe.db.count("Wiki Document", {"route": ["like", f"{clean_route}/%"], "is_group": 0})
+        pub_docs = frappe.db.count("Wiki Document", {"route": ["like", f"{clean_route}/%"], "is_group": 0, "is_published": 1})
+    return {
+        "has_documents": total_docs > 0,
+        "has_published_documents": pub_docs > 0,
+        "total_documents": total_docs,
+        "published_documents": pub_docs,
+    }
+
+
+def custom_get_space_capabilities(space: str, page: str = None) -> dict:
     """Project-documentation aware space capabilities for frontend UI."""
+    doc_counts = _get_space_doc_counts(space)
+    has_published = doc_counts["has_published_documents"]
+
+    page = page or frappe.form_dict.get("page")
+    space_route = frappe.db.get_value("Wiki Space", space, "route") or ""
+    reader_url = None
+    if page:
+        doc_route = frappe.db.get_value("Wiki Document", page, "route")
+        if doc_route:
+            reader_url = f"/{doc_route.strip('/')}"
+    elif space_route and has_published:
+        reader_url = f"/{space_route.strip('/')}/"
+
     project = _space_project(space)
     if project:
         user = frappe.session.user
         if user == "Administrator" or "System Manager" in frappe.get_roles(user):
-            return {"can_read": True, "can_write": True, "can_contribute": True}
+            return {
+                "can_read": True,
+                "can_write": True,
+                "can_contribute": True,
+                "is_read_only": False,
+                "reader_url": reader_url,
+                "space_route": space_route,
+                "has_documents": doc_counts["has_documents"],
+                "has_published_documents": has_published,
+                "total_documents": doc_counts["total_documents"],
+                "published_documents": doc_counts["published_documents"],
+            }
         access = get_space_access(space, user)
         can_read = bool(access.get("can_read"))
         is_write = bool(access.get("can_write"))
         is_manage = bool(access.get("can_manage"))
         is_review = bool(access.get("can_review"))
+        can_merge_level = is_manage or is_review
+        can_contribute_level = is_manage or is_write
+        is_read_only = can_read and not (can_merge_level or can_contribute_level)
         return {
             "can_read": can_read,
-            "can_write": is_manage or is_review,
-            "can_contribute": is_manage or is_write,
+            "can_write": can_merge_level,
+            "can_contribute": can_contribute_level,
+            "is_read_only": is_read_only,
+            "access_level": access.get("access_level"),
+            "reader_url": reader_url,
+            "space_route": space_route,
+            "has_documents": doc_counts["has_documents"],
+            "has_published_documents": has_published,
+            "total_documents": doc_counts["total_documents"],
+            "published_documents": doc_counts["published_documents"],
         }
     from wiki.api import get_space_capabilities as wiki_get_space_capabilities
-    return wiki_get_space_capabilities(space)
+    res = wiki_get_space_capabilities(space, page=page)
+    if isinstance(res, dict):
+        res.setdefault("reader_url", reader_url)
+        res.setdefault("space_route", space_route)
+        res.setdefault("is_read_only", bool(res.get("can_read") and not (res.get("can_write") or res.get("can_contribute"))))
+        res.setdefault("has_documents", doc_counts["has_documents"])
+        res.setdefault("has_published_documents", has_published)
+        res.setdefault("total_documents", doc_counts["total_documents"])
+        res.setdefault("published_documents", doc_counts["published_documents"])
+    return res
 
 
 @frappe.whitelist()

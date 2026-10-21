@@ -60,6 +60,9 @@ scheduler_events = {
 # already present in the database. The job is idempotent.
 after_migrate = "project_documentation.api.wiki_provisioning.queue_missing_wiki_spaces"
 
+home_page = "wiki-app/spaces"
+website_user_home_page = "wiki-app/spaces"
+
 
 override_whitelisted_methods = {
     "wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request.approve_change_request":
