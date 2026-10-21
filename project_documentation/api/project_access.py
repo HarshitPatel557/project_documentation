@@ -1056,6 +1056,7 @@ def _get_space_doc_counts(space: str) -> dict:
     }
 
 
+@frappe.whitelist()
 def custom_get_space_capabilities(space: str, page: str = None) -> dict:
     """Project-documentation aware space capabilities for frontend UI."""
     doc_counts = _get_space_doc_counts(space)
