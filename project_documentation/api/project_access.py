@@ -1596,6 +1596,190 @@ def _sync_cr_mentions_internal(doc):
                 except Exception:
                     pass
 
+    # Send notifications to newly tagged users
+    actor = frappe.session.user if (frappe.session.user and frappe.session.user != "Guest") else cr.owner
+    newly_tagged = valid_users - user_tags_in_existing
+    for tagged_user in newly_tagged:
+        if tagged_user == actor:
+            continue
+        already_notified = frappe.db.exists(
+            "Notification Log",
+            {
+                "for_user": tagged_user,
+                "document_type": "Wiki Change Request",
+                "document_name": cr.name,
+                "type": "Mention",
+            },
+        )
+        if not already_notified:
+            _notify_tagged_user(
+                recipient=tagged_user,
+                doctype="Wiki Change Request",
+                doc_name=cr.name,
+                doc_title=cr.title or cr.name,
+                space=cr.wiki_space,
+                from_user=actor,
+            )
+
+
+def _notify_tagged_user(
+    recipient: str,
+    doctype: str,
+    doc_name: str,
+    doc_title: str,
+    space: str | None = None,
+    from_user: str | None = None,
+) -> None:
+    """Send an in-app and email notification to a user who was tagged/mentioned in a Wiki document or Change Request."""
+    if not recipient:
+        return
+
+    from_user = from_user or frappe.session.user or "Administrator"
+    if recipient == from_user:
+        return
+
+    # Check recipient is valid enabled user
+    if not frappe.db.get_value("User", recipient, "enabled"):
+        return
+
+    sender_name = frappe.utils.get_fullname(from_user) or from_user
+
+    if doctype == "Wiki Change Request":
+        subject = f"{sender_name} tagged you in Change Request “{doc_title}”"
+        link = f"/wiki-app/change-requests/{doc_name}"
+    else:
+        subject = f"{sender_name} tagged you in “{doc_title}”"
+        link = f"/wiki-app/spaces/{space}" if space else f"/app/{doctype}/{doc_name}"
+
+    try:
+        notification = frappe.new_doc("Notification Log")
+        notification.for_user = recipient
+        notification.from_user = from_user
+        notification.type = "Mention"
+        notification.document_type = doctype
+        notification.document_name = doc_name
+        notification.subject = subject
+        notification.link = link
+        notification.email_content = f"""
+            <p><b>{sender_name}</b> tagged you in <b>{doc_title}</b>.</p>
+            <p><a href="{frappe.utils.get_url(link)}">{frappe._('Click here to view')}</a></p>
+        """
+        notification.insert(ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), f"Failed to send mention notification to {recipient}")
+
+    try:
+        frappe.publish_realtime(
+            "wiki_mention",
+            {
+                "document_type": doctype,
+                "document_name": doc_name,
+                "title": doc_title,
+                "from_user": from_user,
+                "subject": subject,
+                "link": link,
+            },
+            user=recipient,
+            after_commit=True,
+        )
+    except Exception:
+        pass
+
+
+def sync_document_mentions(doc, method=None):
+    """When a Wiki Document is created or updated, extract mentions and notify any newly tagged users."""
+    if getattr(frappe.flags, "in_sync_document_mentions", False):
+        return
+
+    try:
+        frappe.flags.in_sync_document_mentions = True
+        _sync_document_mentions_internal(doc)
+    finally:
+        frappe.flags.in_sync_document_mentions = False
+
+
+def _sync_document_mentions_internal(doc):
+    doc_name = doc.name if hasattr(doc, "name") else doc
+    if not doc_name:
+        return
+
+    try:
+        wiki_doc = frappe.get_doc("Wiki Document", doc_name) if isinstance(doc_name, str) else doc
+    except Exception:
+        return
+
+    if not wiki_doc:
+        return
+
+    mentioned_users = set()
+    if wiki_doc.get("title"):
+        mentioned_users.update(extract_user_mentions_from_text(wiki_doc.title))
+    if wiki_doc.get("content"):
+        mentioned_users.update(extract_user_mentions_from_text(wiki_doc.content))
+
+    valid_users = set()
+    if mentioned_users:
+        valid_users = set(
+            frappe.get_all(
+                "User",
+                filters={"name": ["in", list(mentioned_users)], "enabled": 1},
+                pluck="name",
+            )
+        )
+        if len(valid_users) < len(mentioned_users):
+            unmatched = set(mentioned_users) - valid_users
+            by_email = frappe.get_all(
+                "User",
+                filters={"email": ["in", list(unmatched)], "enabled": 1},
+                pluck="name",
+            )
+            valid_users.update(by_email)
+
+    existing_tags_raw = (
+        wiki_doc.get("_user_tags")
+        or frappe.db.get_value("Wiki Document", wiki_doc.name, "_user_tags")
+        or ""
+    )
+    existing_tags = [t.strip() for t in existing_tags_raw.split(",") if t.strip()]
+    user_tags_in_existing = (
+        set(frappe.get_all("User", filters={"name": ["in", existing_tags]}, pluck="name"))
+        if existing_tags
+        else set()
+    )
+    non_user_tags = [t for t in existing_tags if t not in user_tags_in_existing]
+
+    final_tags_list = sorted(set(non_user_tags) | valid_users)
+    new_tags = ("," + ",".join(final_tags_list) + ",") if final_tags_list else ""
+
+    if existing_tags_raw != new_tags:
+        frappe.db.set_value("Wiki Document", wiki_doc.name, "_user_tags", new_tags, update_modified=False)
+        if hasattr(wiki_doc, "_user_tags"):
+            wiki_doc._user_tags = new_tags
+
+    actor = frappe.session.user if (frappe.session.user and frappe.session.user != "Guest") else wiki_doc.owner
+    newly_tagged = valid_users - user_tags_in_existing
+    for tagged_user in newly_tagged:
+        if tagged_user == actor:
+            continue
+        already_notified = frappe.db.exists(
+            "Notification Log",
+            {
+                "for_user": tagged_user,
+                "document_type": "Wiki Document",
+                "document_name": wiki_doc.name,
+                "type": "Mention",
+            },
+        )
+        if not already_notified:
+            _notify_tagged_user(
+                recipient=tagged_user,
+                doctype="Wiki Document",
+                doc_name=wiki_doc.name,
+                doc_title=wiki_doc.title or wiki_doc.name,
+                space=wiki_doc.wiki_space,
+                from_user=actor,
+            )
+
 
 
 

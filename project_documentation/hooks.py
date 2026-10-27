@@ -44,6 +44,9 @@ doc_events = {
     "Wiki Change Request": {
         "on_update": "project_documentation.api.project_access.sync_cr_mention_assignments",
     },
+    "Wiki Document": {
+        "on_update": "project_documentation.api.project_access.sync_document_mentions",
+    },
     "Project User Mapping": {
         "after_insert": "project_documentation.api.project_access.sync_project_user_mapping_access",
     },

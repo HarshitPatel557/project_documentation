@@ -489,3 +489,60 @@ class TestMentionAndCRAccess(FrappeTestCase):
         frappe.set_user(unrelated_email)
         can_unrelated_read = frappe.has_permission("Wiki Change Request", "read", doc=cr_unrelated, user=unrelated_email)
         self.assertFalse(can_unrelated_read)
+
+    def test_mention_notification_sent_on_tagging(self):
+        user_email = "test_mentioned_user@example.com"
+        frappe.db.delete("Notification Log", {"for_user": user_email})
+
+        mention_html = f'<span data-type="mention" data-id="{user_email}" data-label="Mentioned">@Mentioned</span>'
+        cr = self._create_test_cr("CR for Notification Test", description=mention_html)
+        sync_cr_mention_assignments(cr.name)
+
+        # Verify Notification Log was created for the tagged user
+        notif = frappe.db.get_value(
+            "Notification Log",
+            {
+                "for_user": user_email,
+                "document_type": "Wiki Change Request",
+                "document_name": cr.name,
+                "type": "Mention",
+            },
+            ["name", "subject", "link"],
+            as_dict=True,
+        )
+        self.assertIsNotNone(notif)
+        self.assertIn("tagged you in Change Request", notif["subject"])
+        self.assertEqual(notif["link"], f"/wiki-app/change-requests/{cr.name}")
+
+        # Re-saving without changing mentions should NOT duplicate the notification
+        count_before = frappe.db.count("Notification Log", {"for_user": user_email, "document_name": cr.name})
+        sync_cr_mention_assignments(cr.name)
+        count_after = frappe.db.count("Notification Log", {"for_user": user_email, "document_name": cr.name})
+        self.assertEqual(count_before, count_after)
+
+    def test_wiki_notifications_api(self):
+        from wiki.api import get_wiki_notifications, mark_wiki_notification_as_read
+
+        user_email = "test_mentioned_user@example.com"
+        frappe.db.delete("Notification Log", {"for_user": user_email})
+
+        mention_html = f'<span data-type="mention" data-id="{user_email}" data-label="Mentioned">@Mentioned</span>'
+        cr = self._create_test_cr("CR for Wiki Notification API Test", description=mention_html)
+        sync_cr_mention_assignments(cr.name)
+
+        frappe.set_user(user_email)
+        res = get_wiki_notifications()
+        self.assertGreaterEqual(res["unread_count"], 1)
+        self.assertGreaterEqual(res["tagged_count"], 1)
+        self.assertTrue(any(n["document_name"] == cr.name for n in res["notifications"]))
+
+        # Mark single notification as read
+        notif_item = next(n for n in res["notifications"] if n["document_name"] == cr.name)
+        mark_res = mark_wiki_notification_as_read(notif_item["name"])
+        self.assertTrue(mark_res["success"])
+
+        # Reload notifications
+        res_after = get_wiki_notifications()
+        updated_item = next(n for n in res_after["notifications"] if n["name"] == notif_item["name"])
+        self.assertTrue(updated_item["read"])
+
