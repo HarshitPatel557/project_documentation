@@ -1,319 +1,167 @@
-# Promot Wiki — Document Management System
+# Promot Wiki — Project Documentation & Access Control
 
-A Frappe-based document management and project documentation system that integrates **Promot**, **Frappe Wiki**, and the custom **Project Documentation** application.
+A custom Frappe v15 application that acts as the access management, SSO bridge, and project synchronization layer connecting **Promot** with **Frappe Wiki**.
+
+---
+
+## Overview
+
+**Project Documentation** manages multi-project permissions, role mappings, single sign-on (SSO), and collaborative document workflows:
+
+- **Promot Synchronization**: Ingests projects, members, and designation assignments from the Promot central platform via API.
+- **Dynamic Access Control**: Automatically maps project designations to granular Wiki roles (`Manager`, `Writer`, `Reviewer`, `Reader`) with strict project isolation.
+- **Dual-Mode SSO Authentication**: Seamless login from Promot supporting both **AES-256-GCM** encrypted tokens and **RS256 JWT** public-key signatures.
+- **Mention & Notification Engine**: Extracts `@mentions` across Wiki Documents and Change Requests, auto-provisions view access to tagged users (`_user_tags`), and sends real-time in-app notifications.
+
+---
+
+## System Architecture
+
+```text
+                     ┌─────────────────────────────┐
+                     │           PROMOT            │
+                     │  (Users, Projects, Mappings)│
+                     └──────────────┬──────────────┘
+                                    │
+                         REST API / SSO Token
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │             PROJECT DOCUMENTATION APP                   │
+       │                                                         │
+       │  • Promot Sync Service    • Role & Permission Sync     │
+       │  • Dual-Mode SSO (AES/RS) • Mentions & User Tagging    │
+       │  • PM Project Dashboard   • Notification Log & Events   │
+       └────────────────────────────┬────────────────────────────┘
+                                    │
+                           Role & Space Binding
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │                    FRAPPE WIKI                          │
+       │                                                         │
+       │  • Wiki Spaces            • Change Requests (PR Flow)   │
+       │  • Document Publishing    • In-App Notification Bell    │
+       └─────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Technology Stack
 
-* **Frappe Framework:** v15
-* **Frappe Wiki:** Custom Wiki application
-* **Project Documentation:** Custom Frappe application
-* **Promot:** Project and user management
-* **Database:** MariaDB
-* **Backend:** Python / Frappe Framework
+- **Framework**: Frappe Framework v15
+- **Language**: Python 3.10+ / JavaScript / Vue 3
+- **Database**: MariaDB 10.6+
+- **Companion Apps**: Frappe Wiki (`apps/wiki`), Frappe Core (`apps/frappe`)
 
 ---
 
-# Installation & Setup
+## Installation & Setup
 
-## 1. Initialize Frappe Bench
+### 1. Initialize Bench & Create Site (New Setup)
 
-Create a new Frappe Bench using Frappe v15:
+If starting from a fresh environment:
 
 ```bash
+# Initialize Frappe v15 Bench
 bench init project_wiki --frappe-branch version-15
-```
-
-Enter the newly created Bench:
-
-```bash
 cd project_wiki
-```
 
-> All subsequent Bench commands should be executed from the `project_wiki` directory.
-
----
-
-## 2. Create Frappe Site
-
-Create the site that will host Promot Wiki:
-
-```bash
+# Create Frappe site
 bench new-site promot_wiki.local
-```
 
-During site creation, Frappe will ask for:
-
-* MariaDB root password
-* Administrator password
-
----
-
-## 3. Get Required Applications
-
-### 3.1 Get Wiki
-
-Clone the Wiki application from the `develop` branch:
-
-```bash
-bench get-app --branch develop https://github.com/HarshitPatel557/wiki.git
-```
-
-### 3.2 Get Project Documentation
-
-Clone the Project Documentation application:
-
-```bash
-bench get-app --branch develop https://github.com/HarshitPatel557/project_documentation.git
-```
-
-After downloading the applications, the Bench structure will look approximately like:
-
-```text
-project_wiki/
-├── apps/
-│   ├── frappe/
-│   ├── wiki/
-│   └── project_documentation/
-├── sites/
-│   └── promot_wiki.local/
-└── ...
-```
-
----
-
-## 4. Set the Default Site
-
-Set `promot_wiki.local` as the default site:
-
-```bash
+# Set as default site
 bench use promot_wiki.local
 ```
 
-Verify the selected site if required:
+> If you already have an existing bench, navigate to your bench directory and ensure your active site is selected.
+
+---
+
+### 2. Fetch Applications
+
+Clone the **Frappe Wiki** and **Project Documentation** applications into the bench:
 
 ```bash
-bench use
+# Clone Wiki
+bench get-app --branch develop https://github.com/HarshitPatel557/wiki.git
+
+# Clone Project Documentation
+bench get-app --branch develop https://github.com/HarshitPatel557/project_documentation.git
 ```
 
 ---
 
-# 5. Configure Promot API
+### 3. Configure Site Settings (`site_config.json`)
 
-Open the site configuration file:
+Edit `sites/promot_wiki.local/site_config.json` to include the required API and SSO configurations:
 
 ```bash
 nano sites/promot_wiki.local/site_config.json
 ```
 
-Add the required Promot configuration:
+Add your configuration keys alongside the existing Frappe settings:
 
 ```json
 {
-    "promot_api_key": "sk-proj-.....",
-    "promot_api_url": "https://...../NextAPI/get_userdetails",
+    "promot_api_key": "sk-proj-YOUR_API_KEY",
+    "promot_api_url": "https://your-promot-domain.gov.in/NextAPI/get_userdetails",
+    "sso_aes_key": "YOUR_32_BYTE_HEX_OR_BASE64_KEY",
+    "sso_public_key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...\n-----END PUBLIC KEY-----",
+    "host_name": "http://127.0.0.1:8002",
     "server_script_enabled": true
 }
 ```
 
-> **Important:** Do not remove the existing Frappe configuration values from `site_config.json`. Add the Promot configuration alongside the existing settings.
-
-### Security
-
-Never commit the actual Promot API key to Git.
-
-Use a placeholder in documentation:
-
-```text
-sk-proj-.....
-```
-
-Keep the actual API key only in the local/server `site_config.json`.
+> **Security Note**: Never commit actual API keys or private credentials to version control. Keep secrets in `site_config.json`.
 
 ---
 
-# 6. Install Applications
+### 4. Install Apps & Migrate Database
 
-Install the Project Documentation application:
+Install both applications and run migrations to create the required DocTypes and roles:
 
 ```bash
+# Install applications
 bench --site promot_wiki.local install-app project_documentation
-```
-
-Install the Wiki application:
-
-```bash
 bench --site promot_wiki.local install-app wiki
-```
 
-Verify the installed applications:
-
-```bash
-bench --site promot_wiki.local list-apps
-```
-
-Expected applications:
-
-```text
-frappe
-wiki
-project_documentation
-```
-
----
-
-# 7. Run Database Migration
-
-Run the Frappe database migration:
-
-```bash
+# Run database migrations
 bench --site promot_wiki.local migrate
-```
 
-This ensures that the required DocTypes, database tables, roles, and application changes are synchronized with the site.
-
----
-
-# 8. Build Frontend Assets
-
-Build the application assets:
-
-```bash
+# Build frontend assets
 bench build
 ```
 
 ---
 
-# 9. Start Frappe Bench
+### 5. Synchronize Promot Data
 
-Start the development server:
+Execute the synchronization command to import projects, users, and mappings from Promot:
 
 ```bash
-bench start
+bench --site promot_wiki.local execute project_documentation.api.promot_sync.run_sync
 ```
 
-Keep this terminal running.
-
-Open a **second terminal** for the Promot synchronization.
+This synchronizes:
+- Promot users into the local `User` directory.
+- Projects into `Project Documentation Project`.
+- Team mappings into `Project User Mapping`.
+- Role assignments (`Project Documentation Manager`, `Writer`, `Reader`, and Wiki roles).
 
 ---
 
-# 10. Run Promot Synchronization
+### 6. Clear Cache & Start Bench
 
-In the second terminal, navigate to the Bench:
-
-```bash
-cd ~/project_wiki
-```
-
-Open the Frappe console:
-
-```bash
-bench --site promot_wiki.local console
-```
-
-Run the Promot synchronization:
-
-```python
-from project_documentation.api.promot_sync import run_sync
-
-result = run_sync()
-
-print(result)
-```
-
-The synchronization imports/synchronizes the required Promot data into the Project Documentation application.
-
-Conceptually:
-
-```text
-                    PROMOT
-                       │
-                       │ API
-                       ▼
-             Promot Synchronization
-                       │
-                       ▼
-              Project Documentation
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-        Users       Projects    User Mapping
-```
-
----
-
-# 11. Verify Project Documentation Roles
-
-While inside the Frappe console, verify that the required roles exist:
-
-```python
-frappe.get_all(
-    "Role",
-    filters={
-        "name": [
-            "in",
-            [
-                "Project Documentation Manager",
-                "Project Documentation Reader",
-                "Project Documentation Writer"
-            ]
-        ]
-    },
-    pluck="name"
-)
-```
-
-Expected result:
-
-```python
-[
-    "Project Documentation Manager",
-    "Project Documentation Reader",
-    "Project Documentation Writer"
-]
-```
-
-Exit the Frappe console:
-
-```python
-exit()
-```
-
----
-
-# 12. Clear Cache
-
-Clear the Frappe cache:
+Clear the site cache and start the server:
 
 ```bash
 bench --site promot_wiki.local clear-cache
-```
-
-Clear the website cache:
-
-```bash
 bench --site promot_wiki.local clear-website-cache
-```
-
----
-
-# 13. Restart Bench
-
-For a development environment running with `bench start`, stop the existing process using:
-
-```text
-Ctrl + C
-```
-
-Then start it again:
-
-```bash
 bench start
 ```
 
-For a production/supervisor-managed environment:
+For production environments managed by Supervisor/Systemd:
 
 ```bash
 bench restart
@@ -321,310 +169,63 @@ bench restart
 
 ---
 
-# Complete Installation Commands
+## Key Features & Capabilities
 
-The complete installation sequence is:
+### 1. Dual Token SSO (`api/auth.py`)
+Allows users to seamlessly transition from Promot into the Wiki workspace using either:
+- **AES-256-GCM Payload**: Encrypted user token decrypted locally via `sso_aes_key`.
+- **RS256 JWT**: Cryptographically signed token verified using the Promot `sso_public_key`.
 
-```bash
-# 1. Initialize Frappe v15 Bench
-bench init project_wiki --frappe-branch version-15
+Tokens create an authenticated Frappe web session and redirect the user directly to `/wiki-app/`.
 
-# 2. Enter Bench
-cd project_wiki
+### 2. Mentions & User Tagging (`api/project_access.py`)
+- Automatically detects `@username` mentions in Wiki Documents and Change Request descriptions.
+- Tagged users are recorded in the `_user_tags` field.
+- Generates a `Notification Log` for the recipient with a direct Wiki link (`/wiki-app/change-requests/<id>`).
+- Emits real-time `wiki_mention` events over WebSockets to trigger live badges and toasts in the Wiki UI.
 
-# 3. Create Site
-bench new-site promot_wiki.local
+### 3. Role Hierarchy & Project Isolation
 
-# 4. Get Wiki
-bench get-app --branch develop https://github.com/HarshitPatel557/wiki.git
+| Role | Permissions |
+|---|---|
+| **Project Documentation Manager** | Full administration over project Wiki spaces; can review, approve, and merge Change Requests. |
+| **Project Documentation Writer** | Can create and edit Wiki pages and draft Change Requests within their assigned projects. |
+| **Project Documentation Reader** | Read-only access to published project documentation and assigned reviews. |
+| **Tagged User** | Granted scoped read access to Change Requests in which they are explicitly mentioned. |
 
-# 5. Get Project Documentation
-bench get-app --branch develop https://github.com/HarshitPatel557/project_documentation.git
+---
 
-# 6. Set Default Site
-bench use promot_wiki.local
+## Running Automated Tests
 
-# 7. Configure Promot API
-nano sites/promot_wiki.local/site_config.json
-
-# 8. Install Project Documentation
-bench --site promot_wiki.local install-app project_documentation
-
-# 9. Install Wiki
-bench --site promot_wiki.local install-app wiki
-
-# 10. Run Migration
-bench --site promot_wiki.local migrate
-
-# 11. Build Assets
-bench build
-
-# 12. Start Bench
-bench start
-```
-
-Then, from a second terminal:
+Run the test suite to verify permissions, user tagging, role synchronization, and notification workflows:
 
 ```bash
-cd ~/project_wiki
-
-# Open Frappe Console
-bench --site promot_wiki.local console
-```
-
-Inside the console:
-
-```python
-from project_documentation.api.promot_sync import run_sync
-
-result = run_sync()
-
-print(result)
-
-frappe.get_all(
-    "Role",
-    filters={
-        "name": [
-            "in",
-            [
-                "Project Documentation Manager",
-                "Project Documentation Reader",
-                "Project Documentation Writer"
-            ]
-        ]
-    },
-    pluck="name"
-)
-
-exit()
-```
-
-Finally:
-
-```bash
-# Clear cache
-bench --site promot_wiki.local clear-cache
-
-# Clear website cache
-bench --site promot_wiki.local clear-website-cache
-```
-
-For development:
-
-```bash
-bench start
-```
-
-For a production/supervisor setup:
-
-```bash
-bench restart
+bench --site promot_wiki.local run-tests --module project_documentation.tests.test_mention_and_cr_access
 ```
 
 ---
 
-# Project Structure
-
-After installation, the main Bench structure is:
-
-```text
-project_wiki/
-│
-├── apps/
-│   ├── frappe/
-│   ├── wiki/
-│   └── project_documentation/
-│
-├── sites/
-│   ├── apps.txt
-│   ├── common_site_config.json
-│   └── promot_wiki.local/
-│       ├── site_config.json
-│       └── ...
-│
-└── ...
-```
-
----
-
-# Application Architecture
-
-```text
-                         ┌─────────────────────┐
-                         │       PROMOT        │
-                         │                     │
-                         │ Users               │
-                         │ Projects            │
-                         │ Project/User Mapping│
-                         └──────────┬──────────┘
-                                    │
-                                    │ API
-                                    ▼
-                         ┌─────────────────────┐
-                         │ Promot Synchronizer │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                  ┌────────────────────────────────┐
-                  │      Project Documentation      │
-                  │                                │
-                  │ Projects                       │
-                  │ User Mapping                   │
-                  │ Access Control                 │
-                  │ Project Permissions            │
-                  │ Roles                           │
-                  └───────────────┬────────────────┘
-                                  │
-                                  ▼
-                         ┌──────────────────┐
-                         │   Frappe Wiki   │
-                         │                  │
-                         │ Wiki Spaces      │
-                         │ Documents        │
-                         │ Revisions        │
-                         │ Publishing       │
-                         └──────────────────┘
-```
-
----
-
-# Troubleshooting
-
-### Check installed applications
+## Helpful Commands
 
 ```bash
+# Check installed apps
 bench --site promot_wiki.local list-apps
-```
 
-### Check Bench version
+# Re-run Promot sync on demand
+bench --site promot_wiki.local execute project_documentation.api.promot_sync.run_sync
 
-```bash
-bench version
-```
+# Clear application and website cache
+bench --site promot_wiki.local clear-cache && bench --site promot_wiki.local clear-website-cache
 
-### Run migration
-
-```bash
+# Run database migrations after code updates
 bench --site promot_wiki.local migrate
-```
 
-### Clear cache
-
-```bash
-bench --site promot_wiki.local clear-cache
-bench --site promot_wiki.local clear-website-cache
-```
-
-### Open Frappe console
-
-```bash
-bench --site promot_wiki.local console
-```
-
-### Check current site
-
-```bash
-bench use
-```
-
-### Rebuild assets
-
-```bash
+# Rebuild frontend bundles
 bench build
 ```
 
-### Start development server
-
-```bash
-bench start
-```
-
 ---
 
-# Security Notes
+## License
 
-* Never commit the actual Promot API key to Git.
-* Do not share `site_config.json` containing production credentials.
-* Store API credentials in the site's configuration/environment-specific secret storage.
-* Use HTTPS for production deployments.
-* Use a production deployment configuration rather than `bench start` for production servers.
-
----
-
-# Summary
-
-The setup consists of three major components:
-
-```text
-Promot
-   │
-   │ API Synchronization
-   ▼
-Project Documentation
-   │
-   │ Project / User Access Control
-   ▼
-Frappe Wiki
-   │
-   ▼
-Project Documentation & Knowledge Base
-```
-
-The **Project Documentation** application acts as the project-management and access-control layer, while **Frappe Wiki** provides the documentation and content-management functionality.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-### Project Documentation
-
-Project for documentation
-
-### Installation
-
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
-
-```bash
-cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch develop
-bench install-app project_documentation
-```
-
-### Contributing
-
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
-
-```bash
-cd apps/project_documentation
-pre-commit install
-```
-
-Pre-commit is configured to use the following tools for checking and formatting your code:
-
-- ruff
-- eslint
-- prettier
-- pyupgrade
-
-### CI
-
-This app can use GitHub Actions for CI. The following workflows are configured:
-
-- CI: Installs this app and runs unit tests on every push to `develop` branch.
-- Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
-
-
-### License
-
-mit
+MIT
