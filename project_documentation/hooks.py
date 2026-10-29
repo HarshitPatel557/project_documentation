@@ -86,6 +86,8 @@ override_whitelisted_methods = {
         "project_documentation.api.project_access.custom_get_space_capabilities",
     "wiki.api.get_user_info":
         "project_documentation.api.project_access.custom_get_user_info",
+    "wiki.api.direct_merge_change_request":
+        "project_documentation.api.project_access.direct_merge_change_request",
 }
 
 fixtures = [

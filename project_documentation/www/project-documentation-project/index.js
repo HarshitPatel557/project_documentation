@@ -110,6 +110,85 @@ frappe.ready(() => {
     renderMembers(allMembers);
   }
 
+  let currentWorkflowMode = "cr_workflow";
+
+  function updateWorkflowUI(mode) {
+    currentWorkflowMode = mode || "cr_workflow";
+    const isCr = currentWorkflowMode === "cr_workflow";
+
+    const radioCr = $("pd-mode-cr");
+    const radioDirect = $("pd-mode-direct");
+    if (radioCr) radioCr.checked = isCr;
+    if (radioDirect) radioDirect.checked = !isCr;
+
+    const cardCr = $("pd-wf-card-cr");
+    const cardDirect = $("pd-wf-card-direct");
+    if (cardCr) cardCr.classList.toggle("active", isCr);
+    if (cardDirect) cardDirect.classList.toggle("active", !isCr);
+
+    const badge = $("pd-workflow-status-badge");
+    if (badge) {
+      badge.textContent = isCr ? "CR Workflow Active" : "Direct Publishing Active";
+      badge.className = `pd-status pd-status-wf ${isCr ? "pd-status-cr" : "pd-status-direct"}`;
+    }
+
+    const saveBtn = $("pd-save-workflow");
+    if (saveBtn) saveBtn.disabled = true;
+
+    const warningBox = $("pd-wf-warning");
+    if (warningBox) warningBox.style.display = "none";
+  }
+
+  function onWorkflowSelectionChange() {
+    const selected = $("pd-mode-direct")?.checked ? "direct_publishing" : "cr_workflow";
+    const cardCr = $("pd-wf-card-cr");
+    const cardDirect = $("pd-wf-card-direct");
+    if (cardCr) cardCr.classList.toggle("active", selected === "cr_workflow");
+    if (cardDirect) cardDirect.classList.toggle("active", selected === "direct_publishing");
+
+    const saveBtn = $("pd-save-workflow");
+    const warningBox = $("pd-wf-warning");
+    const warningMsg = $("pd-wf-warning-msg");
+
+    if (selected !== currentWorkflowMode) {
+      if (saveBtn) saveBtn.disabled = false;
+      if (warningBox && warningMsg) {
+        warningBox.style.display = "flex";
+        if (selected === "direct_publishing") {
+          warningMsg.innerHTML = "<strong>Important Notice:</strong> Switching to <em>Direct Publishing</em> enables all authorized team members with Write access to publish changes immediately without your review. Existing Change Requests and approval history will remain intact.";
+        } else {
+          warningMsg.innerHTML = "<strong>Important Notice:</strong> Switching to <em>CR Workflow Enabled</em> requires all documentation changes to follow the Change Request approval process before going live.";
+        }
+      }
+    } else {
+      if (saveBtn) saveBtn.disabled = true;
+      if (warningBox) warningBox.style.display = "none";
+    }
+  }
+
+  async function saveWorkflow() {
+    const selected = $("pd-mode-direct")?.checked ? "direct_publishing" : "cr_workflow";
+    const saveBtn = $("pd-save-workflow");
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving...";
+    }
+
+    try {
+      await call("project_documentation.api.project_access.api_set_project_workflow_mode", {
+        project,
+        workflow_mode: selected
+      });
+      updateWorkflowUI(selected);
+      alertMsg("Documentation workflow mode updated successfully.", "success");
+    } catch (e) {
+      alertMsg(e.message || "Unable to update documentation workflow.", "error");
+      if (saveBtn) saveBtn.disabled = false;
+    } finally {
+      if (saveBtn) saveBtn.textContent = "Save Workflow Mode";
+    }
+  }
+
   async function saveAll() {
     const btn = $("pd-save-all");
     const selects = [...document.querySelectorAll("[data-user]")]
@@ -172,6 +251,7 @@ frappe.ready(() => {
         status.textContent = "Wiki Space initializing";
       }
 
+      updateWorkflowUI(p.workflow_mode || "cr_workflow");
       await loadMembers();
     } catch (e) {
       $("pd-members").innerHTML = `
@@ -181,5 +261,13 @@ frappe.ready(() => {
 
   $("pd-save-all").addEventListener("click", saveAll);
   $("pd-member-search").addEventListener("input", filterMembers);
+
+  const radioCr = $("pd-mode-cr");
+  if (radioCr) radioCr.addEventListener("change", onWorkflowSelectionChange);
+  const radioDirect = $("pd-mode-direct");
+  if (radioDirect) radioDirect.addEventListener("change", onWorkflowSelectionChange);
+  const saveWfBtn = $("pd-save-workflow");
+  if (saveWfBtn) saveWfBtn.addEventListener("click", saveWorkflow);
+
   load();
 });

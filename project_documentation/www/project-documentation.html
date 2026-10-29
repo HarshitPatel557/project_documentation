@@ -3,44 +3,187 @@
 {% block page_content %}
 <div class="pd-app">
   <div class="pd-shell">
-    <div class="pd-topbar">
+    <!-- Application Top Navigation Bar -->
+    <nav class="pd-topbar" aria-label="Main Application Header">
       <div class="pd-brand">
-        <img class="pd-brand-logo" src="/assets/wiki/images/promot-wiki-logo.png" alt="Promot Wiki" style="height:36px; width:auto; object-fit:contain;">
+        <a href="/project-documentation" class="pd-brand-link" title="Promot Wiki Project Documentation">
+          <img class="pd-brand-logo" src="/assets/wiki/images/promot-wiki-logo.png" alt="Promot Wiki" onerror="this.style.display='none'; document.getElementById('pd-brand-fallback').style.display='inline-flex';">
+          <span id="pd-brand-fallback" class="pd-brand-fallback" style="display:none;">Promot Wiki</span>
+        </a>
+        <span class="pd-badge-workspace">
+          <span class="pd-badge-dot"></span>PM Workspace
+        </span>
       </div>
-      <div class="pd-user" id="pd-current-user">Loading...</div>
-    </div>
 
+      <div class="pd-topbar-actions">
+        <a href="/wiki-app/spaces/" class="pd-nav-link" title="Browse all Wiki Spaces">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          <span>Wiki Spaces</span>
+        </a>
+
+        <div class="pd-user-chip" id="pd-user-chip" title="Active Project Manager">
+          <span class="pd-user-avatar" id="pd-user-avatar">PM</span>
+          <div class="pd-user-info">
+            <span class="pd-user-name" id="pd-current-user">Loading...</span>
+            <span class="pd-user-role">Project Manager</span>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Page Header Section -->
     <header class="pd-header">
       <div class="pd-header-copy">
-        <div class="pd-eyebrow">PROMOT WIKI</div>
+        <div class="pd-eyebrow">DOCUMENTATION MANAGEMENT</div>
         <h1>My Projects</h1>
-        <p class="pd-subtitle">Manage documentation access and open the knowledge space for your active projects.</p>
+        <p class="pd-subtitle">Manage project documentation access, team permissions, and launch dedicated wiki spaces.</p>
       </div>
+
       <div class="pd-header-actions">
-        <button id="pd-refresh" class="pd-btn pd-btn-secondary">↻&nbsp; Refresh</button>
+        <button id="pd-refresh" class="pd-btn pd-btn-secondary pd-refresh-btn" type="button" title="Refresh project list" aria-label="Refresh project list">
+          <svg class="pd-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>Refresh</span>
+        </button>
       </div>
     </header>
 
-    <div id="pd-alert" class="pd-alert" hidden></div>
+    <!-- Project KPI Statistics Cards -->
+    <section class="pd-stats-grid" aria-label="Project Statistics">
+      <div class="pd-stat-card">
+        <div class="pd-stat-icon pd-stat-icon-total">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <div class="pd-stat-info">
+          <div class="pd-stat-value" id="pd-stat-total">0</div>
+          <div class="pd-stat-label">Total Assigned Projects</div>
+        </div>
+      </div>
 
-    <section class="pd-card">
-      <div class="pd-card-head">
-        <div>
-          <h2>Projects</h2>
-          <p>Select a project to manage its documentation access.</p>
+      <div class="pd-stat-card">
+        <div class="pd-stat-icon pd-stat-icon-ready">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
         </div>
-        <span class="pd-count" id="pd-project-count">0 projects</span>
-      </div>
-      <div class="pd-toolbar">
-        <div class="pd-search">
-          <input id="pd-project-search" type="search" placeholder="Search projects..." autocomplete="off">
+        <div class="pd-stat-info">
+          <div class="pd-stat-value" id="pd-stat-ready">0</div>
+          <div class="pd-stat-label">Documentation Ready</div>
         </div>
-        <span class="pd-count" id="pd-project-visible">—</span>
       </div>
-      <div id="pd-projects" class="pd-project-grid">
-        <div class="pd-loading">Loading your projects...</div>
+
+      <div class="pd-stat-card">
+        <div class="pd-stat-icon pd-stat-icon-pending">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <div class="pd-stat-info">
+          <div class="pd-stat-value" id="pd-stat-pending">0</div>
+          <div class="pd-stat-label">Pending Wiki Space</div>
+        </div>
       </div>
     </section>
+
+    <!-- Global Alert / Toast Notification -->
+    <div id="pd-alert" class="pd-alert" hidden></div>
+
+    <!-- Main Project Directory Container -->
+    <section class="pd-main-card">
+      <!-- Toolbar: Unified Search & Filter Tabs -->
+      <div class="pd-toolbar">
+        <div class="pd-search-wrap">
+          <svg class="pd-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input id="pd-project-search" type="search" placeholder="Search by name, code, vertical, or phase..." autocomplete="off" aria-label="Search projects">
+          <button id="pd-search-clear" class="pd-search-clear" type="button" title="Clear search" aria-label="Clear search" style="display: none;">✕</button>
+        </div>
+
+        <div class="pd-filter-tabs" role="tablist" aria-label="Filter projects by documentation status">
+          <button type="button" class="pd-filter-tab active" data-filter="all" role="tab" aria-selected="true">
+            <span>All</span>
+            <span class="pd-tab-count" id="pd-filter-all-count">0</span>
+          </button>
+          <button type="button" class="pd-filter-tab" data-filter="ready" role="tab" aria-selected="false">
+            <span>Ready</span>
+            <span class="pd-tab-count" id="pd-filter-ready-count">0</span>
+          </button>
+          <button type="button" class="pd-filter-tab" data-filter="pending" role="tab" aria-selected="false">
+            <span>Pending</span>
+            <span class="pd-tab-count" id="pd-filter-pending-count">0</span>
+          </button>
+        </div>
+
+        <div class="pd-visible-meta" id="pd-project-visible">—</div>
+      </div>
+
+      <!-- Dynamic Project Cards Grid -->
+      <div id="pd-projects" class="pd-project-grid" aria-live="polite">
+        <div class="pd-loading-placeholder">
+          <div class="pd-spinner"></div>
+          <p>Loading projects...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Manage Workflow Modal for PM Dashboard -->
+    <div id="pd-modal-overlay" class="pd-modal-overlay" style="display: none;" aria-hidden="true">
+      <div class="pd-modal-dialog" role="dialog" aria-labelledby="pd-modal-title" aria-modal="true">
+        <div class="pd-modal-header">
+          <div>
+            <h3 class="pd-modal-title" id="pd-modal-title">Configure Documentation Workflow</h3>
+            <p class="pd-modal-sub" id="pd-modal-project-name">Project</p>
+          </div>
+          <button id="pd-modal-close" class="pd-modal-close-btn" type="button" aria-label="Close modal">✕</button>
+        </div>
+
+        <div class="pd-modal-body">
+          <div class="pd-modal-options">
+            <label class="pd-modal-option" id="pd-m-card-cr">
+              <input type="radio" name="pd-m-wf-mode" value="cr_workflow" id="pd-m-radio-cr">
+              <div class="pd-m-info">
+                <div class="pd-m-opt-top">
+                  <strong>Mode A: CR Workflow Enabled</strong>
+                  <span class="pd-wf-badge pd-wf-cr"><span class="pd-wf-dot"></span>Review Required</span>
+                </div>
+                <p>Documentation changes require creating Change Requests (CR) and PM approval before merging and publishing.</p>
+              </div>
+            </label>
+
+            <label class="pd-modal-option" id="pd-m-card-direct">
+              <input type="radio" name="pd-m-wf-mode" value="direct_publishing" id="pd-m-radio-direct">
+              <div class="pd-m-info">
+                <div class="pd-m-opt-top">
+                  <strong>Mode B: Direct Publishing</strong>
+                  <span class="pd-wf-badge pd-wf-direct"><span class="pd-wf-dot"></span>Direct Edit</span>
+                </div>
+                <p>Authorized members with Write access can edit and publish pages directly without raising Change Requests.</p>
+              </div>
+            </label>
+          </div>
+
+          <div id="pd-m-warning" class="pd-wf-warning" style="display: none; margin-top: 14px;">
+            <div class="pd-wf-warning-icon">⚠️</div>
+            <div class="pd-wf-warning-msg" id="pd-m-warning-msg"></div>
+          </div>
+        </div>
+
+        <div class="pd-modal-footer">
+          <button id="pd-m-cancel" class="pd-btn pd-btn-secondary" type="button">Cancel</button>
+          <button id="pd-m-save" class="pd-btn pd-btn-primary" type="button" disabled>Save Workflow</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

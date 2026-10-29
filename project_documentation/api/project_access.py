@@ -8,6 +8,19 @@ ACCESS_DOCTYPE = "Project Documentation Access"
 PM_DESIGNATION = "PM"
 WIKI_SPACE_LIST_URL = "/wiki-app/spaces/"
 
+DEFAULT_WORKFLOW_MODE = "cr_workflow"
+VALID_WORKFLOW_MODES = {"cr_workflow", "direct_publishing"}
+
+
+def get_project_workflow_mode(project: str) -> str:
+    """Return the documentation workflow mode for a given project ('cr_workflow' or 'direct_publishing')."""
+    if not project:
+        return DEFAULT_WORKFLOW_MODE
+    val = frappe.db.get_default(f"workflow_mode_{project}", parent="Project Documentation Project")
+    if val in VALID_WORKFLOW_MODES:
+        return val
+    return DEFAULT_WORKFLOW_MODE
+
 # Wiki roles are owned by the Wiki app. We assign them from this app only
 # after validating project membership/access. Marker roles let our permission
 # hooks distinguish roles granted by Project Documentation from unrelated
@@ -489,6 +502,7 @@ def get_my_pm_projects():
         row["route"] = routes_by_space.get(row.wiki_space)
         row["space_id"] = row.wiki_space or None
         row["space_url"] = _space_url(row.wiki_space)
+        row["workflow_mode"] = get_project_workflow_mode(row.name)
 
     return {
         "user": user,
@@ -523,6 +537,7 @@ def get_pm_project(project):
         "route": route,
         "space_id": project_doc.wiki_space or None,
         "space_url": _space_url(project_doc.wiki_space),
+        "workflow_mode": get_project_workflow_mode(project_doc.name),
     }
 
 
@@ -1095,6 +1110,9 @@ def custom_get_space_capabilities(space: str, page: str = None) -> dict:
 
     if project:
         user = frappe.session.user
+        workflow_mode = get_project_workflow_mode(project)
+        enable_cr = (workflow_mode != "direct_publishing")
+
         if user == "Administrator" or "System Manager" in frappe.get_roles(user):
             return {
                 "can_read": True,
@@ -1102,7 +1120,8 @@ def custom_get_space_capabilities(space: str, page: str = None) -> dict:
                 "can_contribute": True,
                 "is_read_only": False,
                 "is_personal": False,
-                "enable_cr_workflow": True,
+                "workflow_mode": workflow_mode,
+                "enable_cr_workflow": enable_cr,
                 "reader_url": reader_url,
                 "space_route": space_route,
                 "has_documents": doc_counts["has_documents"],
@@ -1118,13 +1137,15 @@ def custom_get_space_capabilities(space: str, page: str = None) -> dict:
         can_merge_level = is_manage or is_review
         can_contribute_level = is_manage or is_write
         is_read_only = can_read and not (can_merge_level or can_contribute_level)
+        can_direct_publish = is_write or is_manage or is_review
         return {
             "can_read": can_read,
-            "can_write": can_merge_level,
+            "can_write": can_direct_publish if not enable_cr else can_merge_level,
             "can_contribute": can_contribute_level,
             "is_read_only": is_read_only,
             "is_personal": False,
-            "enable_cr_workflow": True,
+            "workflow_mode": workflow_mode,
+            "enable_cr_workflow": enable_cr,
             "access_level": access.get("access_level"),
             "reader_url": reader_url,
             "space_route": space_route,
@@ -1916,8 +1937,86 @@ def create_personal_space(space_name: str, route: str | None = None) -> dict:
 
 @frappe.whitelist(allow_guest=False)
 def direct_merge_change_request(name: str):
-    """Directly approve and merge a change request in a personal space (no PR workflow)."""
-    from wiki.api import direct_merge_change_request as _direct_merge
-    return _direct_merge(name)
+    """Directly approve and merge a change request (for personal spaces or projects with Direct Publishing mode)."""
+    cr = frappe.get_doc("Wiki Change Request", name)
+    space = cr.wiki_space
+    user = frappe.session.user
+
+    project = _space_project(space)
+    if project:
+        # Server-side workflow enforcement: Ensure direct publishing is enabled for this project
+        workflow_mode = get_project_workflow_mode(project)
+        if workflow_mode != "direct_publishing":
+            frappe.throw(
+                frappe._("Direct publishing is not enabled for this project. Documentation edits must follow the Change Request workflow."),
+                frappe.PermissionError,
+            )
+
+        # Server-side write permission enforcement: User must have Write or Manager permissions
+        if not can_write_space(space, user):
+            frappe.throw(
+                frappe._("You do not have write permission for this project documentation."),
+                frappe.PermissionError,
+            )
+    else:
+        # Non-project (personal) spaces: verify standard write permission
+        from wiki.permissions import can_write_space as wiki_can_write_space
+        if not wiki_can_write_space(space):
+            frappe.throw(
+                frappe._("You do not have permission to edit this space."),
+                frappe.PermissionError,
+            )
+
+    if cr.status in ("Draft", "Changes Requested"):
+        cr.status = "In Review"
+        cr.save(ignore_permissions=True)
+    if cr.status == "In Review":
+        cr.status = "Approved"
+        cr.reviewed_by = user
+        cr.reviewed_at = frappe.utils.now_datetime()
+        cr.save(ignore_permissions=True)
+
+    from wiki.frappe_wiki.doctype.wiki_change_request.wiki_change_request import merge_change_request
+    return merge_change_request(name)
+
+
+@frappe.whitelist(allow_guest=False)
+def api_set_project_workflow_mode(project: str, workflow_mode: str) -> dict:
+    """Allow only the active PM of a project to configure the documentation workflow mode."""
+    _assert_pm_for_project(project)
+    workflow_mode = (workflow_mode or "").strip().lower()
+    if workflow_mode not in VALID_WORKFLOW_MODES:
+        frappe.throw(frappe._("Invalid workflow mode. Must be 'cr_workflow' or 'direct_publishing'."))
+
+    frappe.db.set_default(f"workflow_mode_{project}", workflow_mode, parent="Project Documentation Project")
+    frappe.clear_cache()
+
+    try:
+        wiki_space = frappe.db.get_value("Project Documentation Project", project, "wiki_space")
+        if wiki_space:
+            frappe.publish_realtime(
+                "wiki_space_workflow_updated",
+                {"project": project, "wiki_space": wiki_space, "workflow_mode": workflow_mode},
+                after_commit=True,
+            )
+    except Exception:
+        pass
+
+    return {
+        "project": project,
+        "workflow_mode": workflow_mode,
+        "message": frappe._("Documentation workflow updated successfully."),
+    }
+
+
+@frappe.whitelist(allow_guest=False)
+def api_get_project_workflow_mode(project: str) -> dict:
+    """Get the currently active documentation workflow mode for a project."""
+    mode = get_project_workflow_mode(project)
+    return {
+        "project": project,
+        "workflow_mode": mode,
+    }
+
 
 

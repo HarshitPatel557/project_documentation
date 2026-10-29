@@ -45,6 +45,75 @@
       </div>
     </section>
 
+    <!-- Project Documentation Workflow Configuration -->
+    <section class="pd-card" id="pd-workflow-section" style="margin-top:16px">
+      <div class="pd-card-head">
+        <div>
+          <h2>Documentation Workflow</h2>
+          <p>Configure whether documentation changes must follow the Change Request (CR) review process or can be published directly.</p>
+        </div>
+        <div class="pd-header-actions">
+          <span class="pd-status pd-status-wf" id="pd-workflow-status-badge">CR Workflow Active</span>
+        </div>
+      </div>
+
+      <div class="pd-workflow-body">
+        <div class="pd-workflow-options">
+          <label class="pd-wf-card" id="pd-wf-card-cr">
+            <div class="pd-wf-radio-wrap">
+              <input type="radio" name="pd-workflow-mode" value="cr_workflow" id="pd-mode-cr" checked>
+            </div>
+            <div class="pd-wf-info">
+              <div class="pd-wf-title-row">
+                <strong class="pd-wf-title">Mode A: CR Workflow Enabled</strong>
+                <span class="pd-wf-pill pd-wf-pill-cr">Review Required</span>
+              </div>
+              <p class="pd-wf-desc">
+                Documentation changes must follow the standard Change Request (CR) workflow. Contributors draft changes and submit them for Project Manager review and approval before they are published.
+              </p>
+              <div class="pd-wf-specs">
+                <span>✓ Mandatory PM approval &amp; merge</span>
+                <span>✓ Line-by-line diff review</span>
+                <span>✓ Merge conflict detection</span>
+              </div>
+            </div>
+          </label>
+
+          <label class="pd-wf-card" id="pd-wf-card-direct">
+            <div class="pd-wf-radio-wrap">
+              <input type="radio" name="pd-workflow-mode" value="direct_publishing" id="pd-mode-direct">
+            </div>
+            <div class="pd-wf-info">
+              <div class="pd-wf-title-row">
+                <strong class="pd-wf-title">Mode B: Direct Publishing</strong>
+                <span class="pd-wf-pill pd-wf-pill-direct">Direct Edit</span>
+              </div>
+              <p class="pd-wf-desc">
+                Authorized team members with Write permissions can edit and publish documentation pages directly without creating Change Requests. Edits go live immediately while retaining full revision history.
+              </p>
+              <div class="pd-wf-specs">
+                <span>✓ Direct saving &amp; publishing</span>
+                <span>✓ Enforces Write / Read permissions</span>
+                <span>✓ Full version history preserved</span>
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div id="pd-wf-warning" class="pd-wf-warning" style="display: none;">
+          <div class="pd-wf-warning-icon">⚠️</div>
+          <div class="pd-wf-warning-msg" id="pd-wf-warning-msg"></div>
+        </div>
+
+        <div class="pd-wf-footer">
+          <span class="pd-wf-tip">Workflow mode applies consistently to all spaces and pages in this project.</span>
+          <button id="pd-save-workflow" class="pd-btn pd-btn-primary" type="button" disabled>
+            Save Workflow Mode
+          </button>
+        </div>
+      </div>
+    </section>
+
     <section class="pd-card" style="margin-top:16px">
       <div class="pd-card-head">
         <div>
