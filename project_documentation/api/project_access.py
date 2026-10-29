@@ -1072,6 +1072,26 @@ def custom_get_space_capabilities(space: str, page: str = None) -> dict:
     elif space_route and has_published:
         reader_url = f"/{space_route.strip('/')}/"
 
+    user = frappe.session.user
+    space_info = frappe.db.get_value("Wiki Space", space, ["is_personal", "owner"], as_dict=True)
+    if space_info and space_info.is_personal:
+        is_owner = (space_info.owner == user) or (user == "Administrator") or ("System Manager" in frappe.get_roles(user))
+        return {
+            "can_read": is_owner,
+            "can_write": is_owner,
+            "can_contribute": False,
+            "is_read_only": not is_owner,
+            "is_personal": True,
+            "enable_cr_workflow": False,
+            "access_level": "Owner" if is_owner else "None",
+            "reader_url": reader_url,
+            "space_route": space_route,
+            "has_documents": doc_counts["has_documents"],
+            "has_published_documents": has_published,
+            "total_documents": doc_counts["total_documents"],
+            "published_documents": doc_counts["published_documents"],
+        }
+
     project = _space_project(space)
     if project:
         user = frappe.session.user
@@ -1181,6 +1201,16 @@ def wiki_space_has_permission(doc, user=None, permission_type=None, *args, **kwa
     if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return True
 
+    is_personal = getattr(doc, "is_personal", None)
+    if is_personal is None and hasattr(doc, "name"):
+        is_personal = frappe.db.get_value("Wiki Space", doc.name, "is_personal")
+
+    if is_personal:
+        owner = getattr(doc, "owner", None) or frappe.db.get_value("Wiki Space", doc.name, "owner")
+        if owner == user:
+            return True
+        return False
+
     project = _space_project(doc.name)
 
     if not project:
@@ -1208,6 +1238,13 @@ def wiki_document_has_permission(doc, user=None, permission_type=None, *args, **
 
     ptype = kwargs.get("ptype") or permission_type or "read"
 
+    if doc.wiki_space:
+        space_info = frappe.db.get_value("Wiki Space", doc.wiki_space, ["is_personal", "owner"], as_dict=True)
+        if space_info and space_info.is_personal:
+            if space_info.owner == user or doc.owner == user:
+                return True
+            return False
+
     if not doc.wiki_space:
         return False if _is_project_documentation_managed_user(user) else None
 
@@ -1234,6 +1271,13 @@ def wiki_change_request_has_permission(doc, user=None, permission_type=None, *ar
         return True
 
     ptype = kwargs.get("ptype") or permission_type or "read"
+
+    if doc.wiki_space:
+        space_info = frappe.db.get_value("Wiki Space", doc.wiki_space, ["is_personal", "owner"], as_dict=True)
+        if space_info and space_info.is_personal:
+            if space_info.owner == user or doc.owner == user:
+                return True
+            return False
 
     # Mentioned / assigned users are allowed read access to the change request
     if ptype in {"read", "select"}:
@@ -1322,6 +1366,9 @@ def wiki_space_project_query_conditions(user=None, doctype=None):
     if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return ""
 
+    escaped_user = frappe.db.escape(user)
+    personal_cond = f"(`tabWiki Space`.`is_personal` = 1 AND `tabWiki Space`.`owner` = {escaped_user})"
+
     project_spaces = {
         row.wiki_space
         for row in frappe.get_all(
@@ -1334,7 +1381,7 @@ def wiki_space_project_query_conditions(user=None, doctype=None):
     readable_spaces = _readable_project_spaces(user)
 
     if not project_spaces:
-        return ""
+        return f"(`tabWiki Space`.`is_personal` = 0 OR {personal_cond})"
 
     escaped_project = ", ".join(
         frappe.db.escape(space) for space in project_spaces
@@ -1342,23 +1389,23 @@ def wiki_space_project_query_conditions(user=None, doctype=None):
 
     if _is_project_documentation_managed_user(user):
         if not readable_spaces:
-            return "1 = 0"
+            return personal_cond
         escaped_readable = ", ".join(
             frappe.db.escape(space) for space in readable_spaces
         )
-        return f"`tabWiki Space`.`name` IN ({escaped_readable})"
+        return f"(`tabWiki Space`.`name` IN ({escaped_readable}) OR {personal_cond})"
 
     if readable_spaces:
         escaped_readable = ", ".join(
             frappe.db.escape(space) for space in readable_spaces
         )
         return (
-            f"(`tabWiki Space`.`name` NOT IN ({escaped_project}) "
+            f"((`tabWiki Space`.`name` NOT IN ({escaped_project}) AND (`tabWiki Space`.`is_personal` = 0 OR {personal_cond})) "
             f"OR `tabWiki Space`.`name` IN ({escaped_readable}))"
         )
 
-    # Preserve native Wiki Spaces, but hide every project-controlled space.
-    return f"`tabWiki Space`.`name` NOT IN ({escaped_project})"
+    # Preserve native Wiki Spaces, but hide every project-controlled space and others' personal spaces.
+    return f"(`tabWiki Space`.`name` NOT IN ({escaped_project}) AND (`tabWiki Space`.`is_personal` = 0 OR {personal_cond}))"
 
 
 def wiki_document_project_query_conditions(user=None, doctype=None):
@@ -1371,6 +1418,10 @@ def wiki_document_project_query_conditions(user=None, doctype=None):
     if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return ""
 
+    escaped_user = frappe.db.escape(user)
+    personal_subquery = f"(SELECT `name` FROM `tabWiki Space` WHERE `is_personal` = 1 AND `owner` = {escaped_user})"
+    personal_cond = f"`tabWiki Document`.`wiki_space` IN {personal_subquery}"
+
     project_spaces = {
         row.wiki_space
         for row in frappe.get_all(
@@ -1381,7 +1432,7 @@ def wiki_document_project_query_conditions(user=None, doctype=None):
         if row.wiki_space
     }
     if not project_spaces:
-        return ""
+        return f"(`tabWiki Document`.`wiki_space` NOT IN (SELECT `name` FROM `tabWiki Space` WHERE `is_personal` = 1 AND `owner` != {escaped_user}))"
 
     readable_spaces = _readable_project_spaces(user)
     escaped_project = ", ".join(
@@ -1390,11 +1441,11 @@ def wiki_document_project_query_conditions(user=None, doctype=None):
 
     if _is_project_documentation_managed_user(user):
         if not readable_spaces:
-            return "1 = 0"
+            return personal_cond
         escaped_readable = ", ".join(
             frappe.db.escape(space) for space in readable_spaces
         )
-        return f"`tabWiki Document`.`wiki_space` IN ({escaped_readable})"
+        return f"(`tabWiki Document`.`wiki_space` IN ({escaped_readable}) OR {personal_cond})"
 
     # Non-project documents remain governed by native Wiki rules.
     condition = (
@@ -1410,7 +1461,7 @@ def wiki_document_project_query_conditions(user=None, doctype=None):
             f" OR `tabWiki Document`.`wiki_space` IN ({escaped_readable})"
         )
 
-    return condition + ")"
+    return f"(({condition}) AND (`tabWiki Document`.`wiki_space` NOT IN (SELECT `name` FROM `tabWiki Space` WHERE `is_personal` = 1 AND `owner` != {escaped_user})))"
 
 
 def wiki_change_request_project_query_conditions(user=None, doctype=None):
@@ -1423,6 +1474,10 @@ def wiki_change_request_project_query_conditions(user=None, doctype=None):
     if user == "Administrator" or "System Manager" in frappe.get_roles(user):
         return ""
 
+    escaped_user_str = frappe.db.escape(user)
+    personal_subquery = f"(SELECT `name` FROM `tabWiki Space` WHERE `is_personal` = 1 AND `owner` = {escaped_user_str})"
+    personal_cond = f"`tabWiki Change Request`.`wiki_space` IN {personal_subquery}"
+
     project_spaces = {
         row.wiki_space
         for row in frappe.get_all(
@@ -1432,20 +1487,21 @@ def wiki_change_request_project_query_conditions(user=None, doctype=None):
         )
         if row.wiki_space
     }
-    if not project_spaces:
-        return ""
-
-    readable_spaces = _readable_project_spaces(user)
     escaped_user = frappe.db.escape(f"%{user}%")
     assigned_cond = f"`tabWiki Change Request`.`_assign` LIKE {escaped_user}"
 
+    if not project_spaces:
+        return f"(`tabWiki Change Request`.`wiki_space` NOT IN (SELECT `name` FROM `tabWiki Space` WHERE `is_personal` = 1 AND `owner` != {escaped_user_str}) OR {assigned_cond})"
+
+    readable_spaces = _readable_project_spaces(user)
+
     if _is_project_documentation_managed_user(user):
         if not readable_spaces:
-            return assigned_cond
+            return f"({personal_cond} OR {assigned_cond})"
         escaped_readable = ", ".join(
             frappe.db.escape(space) for space in readable_spaces
         )
-        return f"(`tabWiki Change Request`.`wiki_space` IN ({escaped_readable}) OR {assigned_cond})"
+        return f"(`tabWiki Change Request`.`wiki_space` IN ({escaped_readable}) OR {personal_cond} OR {assigned_cond})"
 
     escaped_project = ", ".join(
         frappe.db.escape(space) for space in project_spaces
@@ -1463,7 +1519,7 @@ def wiki_change_request_project_query_conditions(user=None, doctype=None):
             f" OR `tabWiki Change Request`.`wiki_space` IN ({escaped_readable})"
         )
 
-    condition += f" OR {assigned_cond})"
+    condition += f" OR {personal_cond} OR {assigned_cond})"
     return condition
 
 
@@ -1846,4 +1902,19 @@ def sync_project_user_mapping_access(doc, method=None):
         _sync_user_wiki_roles(doc.user)
     except Exception:
         pass
+
+
+@frappe.whitelist(allow_guest=False)
+def create_personal_space(space_name: str, route: str | None = None) -> dict:
+    """Create a personal Wiki Space owned by the current user."""
+    from wiki.api import create_personal_space as _create_personal_space
+    return _create_personal_space(space_name, route)
+
+
+@frappe.whitelist(allow_guest=False)
+def direct_merge_change_request(name: str):
+    """Directly approve and merge a change request in a personal space (no PR workflow)."""
+    from wiki.api import direct_merge_change_request as _direct_merge
+    return _direct_merge(name)
+
 
